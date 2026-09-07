@@ -19,8 +19,8 @@ android {
         // versionCode обязан расти с каждой поставкой: Android не поставит
         // обновление поверх, если номер не увеличился, и заказчик остался бы
         // со старой сборкой, думая, что обновился.
-        versionCode = 5
-        versionName = "1.2.1"
+        versionCode = 6
+        versionName = "1.3.0"
     }
 
     buildTypes {
@@ -52,6 +52,10 @@ android {
 
     buildFeatures {
         viewBinding = true
+        // Единственное, ради чего он включён: BuildConfig.VERSION_NAME читает
+        // приложение, когда сравнивает себя с выпуском на GitHub. Версия
+        // задаётся один раз, здесь же — второго места для неё нет.
+        buildConfig = true
     }
 }
 

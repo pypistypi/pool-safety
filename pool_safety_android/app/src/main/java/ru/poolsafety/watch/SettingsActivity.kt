@@ -9,6 +9,9 @@ import kotlinx.coroutines.launch
 import ru.poolsafety.watch.databinding.ActivitySettingsBinding
 import ru.poolsafety.watch.net.DiscoveryClient
 import ru.poolsafety.watch.net.Protocol
+import ru.poolsafety.watch.net.UpdateChecker
+import ru.poolsafety.watch.net.UpdateResult
+import ru.poolsafety.watch.net.showUpdateDialog
 import ru.poolsafety.watch.service.WatchService
 
 // ---------------------------------------------------------------------------
@@ -37,6 +40,7 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.searchButton.setOnClickListener { search() }
         binding.saveButton.setOnClickListener { save() }
+        binding.checkUpdateButton.setOnClickListener { checkForUpdate() }
     }
 
     private fun load() {
@@ -47,6 +51,33 @@ class SettingsActivity : AppCompatActivity() {
         binding.presenceSwitch.isChecked = prefs.notifyPresence
         binding.attentionSwitch.isChecked = prefs.notifyAttention
         binding.clearSwitch.isChecked = prefs.notifyClear
+        binding.updateCheckSwitch.isChecked = prefs.checkUpdates
+        binding.versionLabel.text = getString(R.string.updates_title) +
+            ": установлена " + BuildConfig.VERSION_NAME
+    }
+
+    /// Проверка по нажатию кнопки — в обход суточного ограничения: раз
+    /// оператор попросил явно, ждать сутки незачем.
+    private fun checkForUpdate() {
+        binding.checkUpdateButton.isEnabled = false
+        binding.updateResult.text = getString(R.string.updates_checking)
+
+        lifecycleScope.launch {
+            val result = UpdateChecker.check(BuildConfig.VERSION_NAME)
+            prefs.lastUpdateCheckMs = System.currentTimeMillis()
+            binding.checkUpdateButton.isEnabled = true
+
+            when (result) {
+                is UpdateResult.Available -> {
+                    binding.updateResult.text = ""
+                    showUpdateDialog(this@SettingsActivity, result.info)
+                }
+                UpdateResult.UpToDate ->
+                    binding.updateResult.text = getString(R.string.updates_none)
+                UpdateResult.Failed ->
+                    binding.updateResult.text = getString(R.string.updates_failed)
+            }
+        }
     }
 
     private fun search() {
@@ -92,6 +123,7 @@ class SettingsActivity : AppCompatActivity() {
         prefs.notifyPresence = binding.presenceSwitch.isChecked
         prefs.notifyAttention = binding.attentionSwitch.isChecked
         prefs.notifyClear = binding.clearSwitch.isChecked
+        prefs.checkUpdates = binding.updateCheckSwitch.isChecked
 
         // Служба подхватывает настройки сразу: те, что вступают в силу
         // «когда-нибудь потом», оператор считает несохранёнными.

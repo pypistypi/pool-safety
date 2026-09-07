@@ -32,12 +32,37 @@
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/connectionState"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="@color/text_dim"
-                android:textSize="12sp" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/connectionState"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@color/text_dim"
+                    android:textSize="12sp" />
+
+                <!--
+                    Отключиться от компьютера. Нужна тем, кто уходит с
+                    телефоном за пределы дома: без неё приложение пыталось бы
+                    достучаться до поста наблюдения бесконечно и держало бы на
+                    экране «нет связи» — сеть-то домашняя, локальная, вне её
+                    достучаться нельзя ни за что.
+                -->
+                <TextView
+                    android:id="@+id/connectionToggle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:padding="4dp"
+                    android:textColor="@color/level_presence"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton

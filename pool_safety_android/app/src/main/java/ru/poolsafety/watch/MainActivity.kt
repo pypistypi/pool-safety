@@ -24,6 +24,9 @@ import ru.poolsafety.watch.net.Connection
 import ru.poolsafety.watch.notify.AlarmSiren
 import ru.poolsafety.watch.net.EventKind
 import ru.poolsafety.watch.net.Panel
+import ru.poolsafety.watch.net.UpdateChecker
+import ru.poolsafety.watch.net.UpdateResult
+import ru.poolsafety.watch.net.showUpdateDialog
 import ru.poolsafety.watch.service.WatchService
 import ru.poolsafety.watch.ui.PanelHolder
 
@@ -96,6 +99,7 @@ class MainActivity : AppCompatActivity() {
         binding.modeButton.setOnClickListener { toggleSingle(if (single >= 0) -1 else 0) }
         binding.settingsButton.setOnClickListener { openSettings() }
         binding.setupButton.setOnClickListener { openSettings() }
+        binding.connectionToggle.setOnClickListener { toggleConnection() }
 
         handleIntent(intent)
         requestNotificationPermission()
@@ -105,8 +109,34 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         applyConfigured()
-        if (prefs.isConfigured) WatchService.start(this)
+        // Отключённый вручную телефон не пытается связаться сам: скорее всего
+        // оператор просто открыл приложение вне домашней сети посмотреть
+        // настройки, а не вернулся к посту наблюдения.
+        if (prefs.isConfigured && !prefs.manuallyDisconnected) WatchService.start(this)
+        showConnectionToggle()
         applyMode()
+        maybeCheckForUpdate()
+    }
+
+    /// Раз в сутки, и только если оператор не выключил проверку в настройках.
+    ///
+    /// НЕ ЧАЩЕ: приложение открывают по многу раз за смену, а спрашивать
+    /// GitHub на каждое открытие — значит дёргать сеть ради вопроса, ответ на
+    /// который за минуты не меняется.
+    private fun maybeCheckForUpdate() {
+        if (!prefs.checkUpdates) return
+        val dayMs = 24L * 60 * 60 * 1000
+        if (System.currentTimeMillis() - prefs.lastUpdateCheckMs < dayMs) return
+
+        lifecycleScope.launch {
+            val result = UpdateChecker.check(BuildConfig.VERSION_NAME)
+            prefs.lastUpdateCheckMs = System.currentTimeMillis()
+            // Тихая проверка: молчим и про «нет обновлений», и про неудачу.
+            // Диалогом беспокоим только когда есть что предложить.
+            if (result is UpdateResult.Available && !isFinishing) {
+                showUpdateDialog(this@MainActivity, result.info)
+            }
+        }
     }
 
     override fun onStop() {
@@ -222,14 +252,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showConnection(state: Connection) {
-        binding.connectionState.text = when (state) {
-            is Connection.Online -> "на связи с ${state.host}"
-            is Connection.Connecting ->
+        binding.connectionState.text = when {
+            prefs.manuallyDisconnected -> getString(R.string.connection_disconnected)
+            state is Connection.Online -> "на связи с ${state.host}"
+            state is Connection.Connecting ->
                 if (state.attempt <= 1) "подключение…"
                 else "переподключение (попытка ${state.attempt})…"
-            is Connection.Failed -> "нет связи: ${state.reason}"
-            Connection.Offline -> getString(R.string.connection_offline)
+            state is Connection.Failed -> "нет связи: ${state.reason}"
+            else -> getString(R.string.connection_offline)
         }
+    }
+
+    /// Переключатель «Отключиться» / «Подключиться» рядом со строкой связи.
+    ///
+    /// СКРЫТ, ПОКА КОМПЬЮТЕР НЕ ВЫБРАН: отключаться не от чего, а кнопка на
+    /// пустом месте только сбивала бы с толку человека, впервые открывшего
+    /// приложение.
+    private fun showConnectionToggle() {
+        binding.connectionToggle.visibility =
+            if (prefs.isConfigured) View.VISIBLE else View.GONE
+        binding.connectionToggle.setText(
+            if (prefs.manuallyDisconnected) R.string.reconnect else R.string.disconnect
+        )
+    }
+
+    private fun toggleConnection() {
+        if (prefs.manuallyDisconnected) {
+            prefs.manuallyDisconnected = false
+            WatchService.start(this)
+        } else {
+            prefs.manuallyDisconnected = true
+            WatchService.stop(this)
+        }
+        showConnectionToggle()
+        showConnection(WatchService.connection.value)
     }
 
     private fun showPanels(panels: List<Panel>) {

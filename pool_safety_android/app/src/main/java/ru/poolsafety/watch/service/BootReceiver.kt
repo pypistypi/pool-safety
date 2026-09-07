@@ -29,8 +29,13 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
-        if (!Prefs(context).isConfigured) {
+        val prefs = Prefs(context)
+        if (!prefs.isConfigured) {
             Log.i("PoolSafety", "после загрузки: компьютер не выбран, службу не поднимаем")
+            return
+        }
+        if (prefs.manuallyDisconnected) {
+            Log.i("PoolSafety", "после загрузки: отключено вручную, службу не поднимаем")
             return
         }
 

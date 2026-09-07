@@ -125,8 +125,8 @@ class EventClient(private val scope: CoroutineScope) {
                 // красную кнопку «Принял», которая никуда не дойдёт, хуже, чем
                 // честно показать, что связь потеряна.
                 alarmPhase.value = AlarmPhase.Idle
-                val reason = failure.message ?: "связь потеряна"
-                Log.w(TAG, "связь с $host:$port оборвалась: $reason")
+                val reason = shortReason(failure)
+                Log.w(TAG, "связь с $host:$port оборвалась: ${failure.message ?: failure}")
                 connection.value = Connection.Failed(reason)
             }
 
@@ -135,6 +135,30 @@ class EventClient(private val scope: CoroutineScope) {
             // сети связь не восстановится вовсе.
             delay(minOf(1_000L * attempt, MAX_PAUSE_MS))
         }
+    }
+
+    /// Короткая, понятная причина обрыва — для показа на экране.
+    ///
+    /// БЕЗ ЭТОГО ОПЕРАТОР ВИДЕЛ БЫ СЫРОЕ СООБЩЕНИЕ JAVA: «failed to connect to
+    /// /10.0.2.2 (port 8765) from /10.0.2.16 (port 42342) after 5000ms:
+    /// isConnected failed: ECONNREFUSED (Connection refused)» — шесть строк
+    /// вместо одной, которые расталкивают весь экран и ничего не объясняют
+    /// человеку без опыта в сетях. Причина обрыва в подробностях остаётся в
+    /// журнале для отладки, а на экране — фраза по-русски.
+    private fun shortReason(failure: Exception): String = when {
+        failure is SocketTimeoutException ->
+            "компьютер не отвечает"
+        failure is java.net.ConnectException
+            || failure.message?.contains("ECONNREFUSED") == true ->
+            "компьютер не запущен или порт закрыт"
+        failure is java.net.UnknownHostException ->
+            "адрес не найден"
+        failure is java.net.NoRouteToHostException
+            || failure.message?.contains("ENETUNREACH") == true
+            || failure.message?.contains("EHOSTUNREACH") == true ->
+            "сеть недоступна — телефон не в той же сети, что компьютер"
+        else -> failure.message?.takeIf { it.isNotBlank() && it.length <= 60 }
+            ?: "связь потеряна"
     }
 
     private suspend fun session(host: String, port: Int) = withContext(Dispatchers.IO) {

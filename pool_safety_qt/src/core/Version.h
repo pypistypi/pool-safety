@@ -16,6 +16,6 @@
 namespace core {
 
 /// Версия программы в виде «главная.дополнительная.правка».
-inline constexpr const char *kAppVersion = "1.2.1";
+inline constexpr const char *kAppVersion = "1.3.0";
 
 } // namespace core

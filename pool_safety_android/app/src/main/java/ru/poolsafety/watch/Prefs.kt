@@ -29,6 +29,38 @@ class Prefs(context: Context) {
 
     val isConfigured: Boolean get() = host.isNotBlank()
 
+    /// Оператор отключился вручную — например, ушёл с телефоном за пределы
+    /// домашней сети.
+    ///
+    /// БЕЗ ЭТОГО ФЛАГА ПРИЛОЖЕНИЕ НЕ УМЕЕТ МОЛЧАТЬ. Сеть локальная, без
+    /// интернета: за пределами дома до поста наблюдения достучаться нельзя ни
+    /// за что. Не зная об этом, служба пробовала бы подключиться бесконечно и
+    /// держала бы на экране и в шторке «нет связи» — то, что оператор принял
+    /// за неполадку, хотя это ожидаемое следствие того, что он вышел из дома.
+    ///
+    /// ЭТО НЕ СПОСОБ ВЫКЛЮЧИТЬ ТРЕВОГУ. Пока флаг снят и телефон в домашней
+    /// сети, тревога звучит всегда — здесь ничего не изменилось. Флаг лишь
+    /// решает, пытается ли телефон вообще связываться с постом.
+    var manuallyDisconnected: Boolean
+        get() = store.getBoolean(KEY_DISCONNECTED, false)
+        set(value) = store.edit().putBoolean(KEY_DISCONNECTED, value).apply()
+
+    /// Проверять ли обновления при запуске приложения.
+    ///
+    /// Единственное место, где приложение обращается в интернет — связь с
+    /// постом наблюдения остаётся только локальной. Включено по умолчанию:
+    /// заказчик просил эту возможность явно, а не как то, что нужно сначала
+    /// найти в настройках.
+    var checkUpdates: Boolean
+        get() = store.getBoolean(KEY_CHECK_UPDATES, true)
+        set(value) = store.edit().putBoolean(KEY_CHECK_UPDATES, value).apply()
+
+    /// Когда проверяли в последний раз — чтобы не дёргать GitHub на каждом
+    /// открытии приложения, а раз в сутки.
+    var lastUpdateCheckMs: Long
+        get() = store.getLong(KEY_LAST_UPDATE_CHECK, 0L)
+        set(value) = store.edit().putLong(KEY_LAST_UPDATE_CHECK, value).apply()
+
     /// Звук уведомлений вообще.
     var soundEnabled: Boolean
         get() = store.getBoolean(KEY_SOUND, true)
@@ -76,5 +108,8 @@ class Prefs(context: Context) {
         const val KEY_PRESENCE = "notify_presence"
         const val KEY_ATTENTION = "notify_attention"
         const val KEY_CLEAR = "notify_clear"
+        const val KEY_DISCONNECTED = "manually_disconnected"
+        const val KEY_CHECK_UPDATES = "check_updates"
+        const val KEY_LAST_UPDATE_CHECK = "last_update_check_ms"
     }
 }

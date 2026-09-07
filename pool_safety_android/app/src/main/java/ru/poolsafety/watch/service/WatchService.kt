@@ -87,6 +87,18 @@ class WatchService : Service() {
     /// К кому подключены прямо сейчас. Пусто — связи нет.
     private var watching: Pair<String, Int>? = null
 
+    /// Служба останавливается прямо сейчас.
+    ///
+    /// ЗАЩИЩАЕТ ОТ ГОНКИ С АСИНХРОННЫМ УВЕДОМЛЕНИЕМ О СВЯЗИ. client.stop()
+    /// меняет состояние связи на Offline, а на это состояние подписан
+    /// отдельный слушатель, который сам зовёт NotificationManager — в обход
+    /// stopForeground(). Слушатель работает в своей корутине и может
+    /// сработать позже, чем остановка службы, переиздав уведомление уже после
+    /// его удаления. Флаг ставится ДО client.stop(), поэтому к моменту, когда
+    /// слушатель доберётся до публикации, он увидит, что публиковать не надо.
+    @Volatile
+    private var stopping = false
+
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
@@ -161,6 +173,29 @@ class WatchService : Service() {
             return
         }
 
+        // ОТКЛЮЧЕНО ВРУЧНУЮ — СЛУЖБА НЕ ПРОБУЕТ СВЯЗАТЬСЯ.
+        //
+        // Проверка нужна и здесь, а не только перед вызовом start(): служба
+        // помечена START_STICKY, и если система её убьёт ради памяти, она
+        // поднимется заново сама с тем же действием по умолчанию — минуя
+        // экран, где стоит основная проверка. Без этой строки телефон,
+        // отключённый оператором, снова начал бы ломиться на пост наблюдения
+        // после первой же чистки памяти.
+        if (prefs.manuallyDisconnected) {
+            stopping = true
+            watching = null
+            client.stop()
+            releaseWakeLock()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            getSystemService<NotificationManager>()?.cancel(Notifications.ID_SERVICE)
+            return
+        }
+
+        // Служба продолжает жить (её не останавливали через stopSelf) —
+        // снимаем защиту, иначе следующее «Подключиться» онемеет: флаг
+        // навсегда запретит публиковать состояние связи.
+        stopping = false
+
         val wanted = prefs.host to prefs.port
 
         // СВЯЗЬ НЕ ТРОГАЕМ, ЕСЛИ ОНА УЖЕ ИДЁТ К ТОМУ ЖЕ КОМПЬЮТЕРУ.
@@ -181,10 +216,16 @@ class WatchService : Service() {
     }
 
     private fun stopEverything(startId: Int) {
+        stopping = true
         watching = null
         client.stop()
         releaseWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
+
+        // Отмена поверх stopForeground() — на случай, если слушатель успел
+        // проскочить до того, как флаг stopping стал виден его потоку.
+        getSystemService<NotificationManager>()?.cancel(Notifications.ID_SERVICE)
+
         // Останавливаемся по своему номеру команды, а не безусловно: иначе
         // служба уходит вместе с командой запуска, пришедшей следом.
         stopSelf(startId)
@@ -230,6 +271,9 @@ class WatchService : Service() {
     }
 
     private fun updateServiceNotification(state: Connection) {
+        // Служба останавливается — публиковать нечего, о гонке см. поле stopping.
+        if (stopping) return
+
         val text = when (state) {
             is Connection.Online -> "на связи с ${state.host}"
             is Connection.Connecting ->

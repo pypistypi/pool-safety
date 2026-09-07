@@ -6,6 +6,9 @@
     <string name="settings">Настройки</string>
 
     <string name="connection_offline">наблюдение остановлено</string>
+    <string name="connection_disconnected">отключено вручную</string>
+    <string name="disconnect">Отключиться</string>
+    <string name="reconnect">Подключиться</string>
     <string name="no_server">Компьютер не выбран</string>
     <string name="no_server_hint">Откройте настройки и найдите компьютер в сети либо впишите его адрес вручную.</string>
 
@@ -30,6 +33,17 @@
     <string name="notify_attention">Сообщать о признаках, требующих взгляда</string>
     <string name="notify_clear">Сообщать, что зона опустела</string>
     <string name="notify_alarm_always">Тревога приходит всегда — её отключить нельзя</string>
+
+    <string name="updates_title">Обновления</string>
+    <string name="updates_auto_check">Проверять обновления при запуске</string>
+    <string name="updates_check_now">Проверить сейчас</string>
+    <string name="updates_checking">Проверка…</string>
+    <string name="updates_none">Установлена последняя версия</string>
+    <string name="updates_failed">Не удалось проверить — нет связи с интернетом</string>
+    <string name="updates_available_title">Доступно обновление</string>
+    <string name="updates_available_message">Версия %1$s. У вас установлена %2$s.</string>
+    <string name="updates_download">Скачать</string>
+    <string name="updates_later">Позже</string>
 
     <string name="alarm_acknowledge">ПРИНЯЛ</string>
     <string name="alarm_false">Ложная</string>
