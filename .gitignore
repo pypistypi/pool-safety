@@ -1,0 +1,27 @@
+# Собранное — не хранится в git, попадает в выпуски GitHub Releases.
+pool_safety_qt/dist/
+pool_safety_android/dist/
+
+# Каталоги сборки (создаются во временной папке, но на всякий случай).
+build/
+out/
+cmake-build-*/
+.qtc_clangd/
+CMakeFiles/
+CMakeCache.txt
+
+# Android / Gradle.
+.gradle/
+**/build/
+local.properties
+*.iml
+.idea/
+
+# Личные настройки редактора.
+.vscode/
+
+# Системные и временные файлы.
+Thumbs.db
+.DS_Store
+*.log
+*.tmp

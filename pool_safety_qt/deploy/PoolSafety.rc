@@ -1,0 +1,47 @@
+// ---------------------------------------------------------------------------
+//  Ресурсы Windows: значок программы и сведения о файле.
+//
+//  ЗАЧЕМ. Без этого файла программа выглядит как поделка: в проводнике и в
+//  панели задач у неё стандартный значок, а в свойствах файла пусто — ни
+//  названия, ни версии. Для программы, которую ставят на объект и передают
+//  чужому системному администратору, это первое, на что смотрят.
+//
+//  Файл в UTF-8; кодовая страница компилятора ресурсов задана в CMakeLists
+//  (-c 65001), иначе русские строки попадут в свойства файла битыми.
+// ---------------------------------------------------------------------------
+
+#include <windows.h>
+
+// Значок с наименьшим номером становится значком программы в проводнике.
+IDI_ICON1 ICON "PoolSafety.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // 0419 — русский, 04B0 — Unicode.
+        BLOCK "041904B0"
+        BEGIN
+            VALUE "CompanyName",      "Система видеонаблюдения за бассейном"
+            VALUE "FileDescription",  "Наблюдение за бассейном — пост оператора"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "PoolSafety"
+            VALUE "OriginalFilename", "PoolSafety.exe"
+            VALUE "ProductName",      "Наблюдение за бассейном"
+            VALUE "ProductVersion",   "1.0.0"
+            VALUE "Comments",         "Распознавание людей и опасных положений. Работает без интернета, лица не распознаются."
+        END
+    END
+
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x419, 1200
+    END
+END

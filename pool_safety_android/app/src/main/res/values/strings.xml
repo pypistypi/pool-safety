@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Наблюдение за бассейном</string>
+
+    <string name="settings_title">Настройки</string>
+    <string name="settings">Настройки</string>
+
+    <string name="connection_offline">наблюдение остановлено</string>
+    <string name="no_server">Компьютер не выбран</string>
+    <string name="no_server_hint">Откройте настройки и найдите компьютер в сети либо впишите его адрес вручную.</string>
+
+    <string name="panel_no_video">Видео нет: у этой панели не сетевая камера</string>
+    <string name="panel_empty">Источник не выбран</string>
+    <string name="panel_connecting">подключение к камере…</string>
+
+    <string name="show_all">Все четыре</string>
+    <string name="show_one">Одна камера</string>
+
+    <string name="search_computer">Найти компьютер в сети</string>
+    <string name="searching">Идёт поиск…</string>
+    <string name="search_none">Компьютер не найден. Впишите адрес вручную.</string>
+    <string name="host_label">Адрес компьютера</string>
+    <string name="port_label">Порт</string>
+    <string name="save">Сохранить</string>
+    <string name="saved">Сохранено</string>
+
+    <string name="sound_enabled">Звук уведомлений</string>
+    <string name="volume">Громкость</string>
+    <string name="notify_presence">Сообщать о появлении человека</string>
+    <string name="notify_attention">Сообщать о признаках, требующих взгляда</string>
+    <string name="notify_clear">Сообщать, что зона опустела</string>
+    <string name="notify_alarm_always">Тревога приходит всегда — её отключить нельзя</string>
+
+    <string name="alarm_acknowledge">ПРИНЯЛ</string>
+    <string name="alarm_false">Ложная</string>
+    <string name="alarm_confirm">Помощь вызвана</string>
+    <string name="alarm_close">Происшествие закрыто</string>
+    <string name="alarm_raised">ТРЕВОГА — требуется реакция</string>
+    <string name="alarm_acknowledged">Тревога принята. Что дальше?</string>
+    <string name="alarm_confirmed">Помощь вызвана. Тревога закрывается по завершении</string>
+
+    <string name="no_connection_for_command">Нет связи с компьютером — решение не отправить</string>
+
+    <string name="notifications_denied">Без разрешения на уведомления тревога не придёт</string>
+</resources>
