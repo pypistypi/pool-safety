@@ -329,10 +329,11 @@ NetworkSource::~NetworkSource()
 
 void NetworkSource::start()
 {
-    if (m_player)
+    if (m_player || m_mjpegThread.isRunning())
         return;
 
     m_attempts = 0;
+    m_lastAttemptMs = 0;
     openStream();
 
     // Сторож обрыва.
@@ -342,14 +343,80 @@ void NetworkSource::start()
     // перестали приходить. Так ведут себя камеры при потере питания на
     // коммутаторе и при перегрузке сети. Ошибку в этом случае никто не
     // сообщит, и наблюдение молча замрёт на последнем кадре — худшее, что
-    // может случиться с постом охраны.
+    // может случиться с постом охраны. Один и тот же сторож обслуживает оба
+    // пути — MJPEG и RTSP: молчание кадров выглядит одинаково для обоих.
     m_watchdog = new QTimer(this);
     m_watchdog->setInterval(kStallCheckMs);
     connect(m_watchdog, &QTimer::timeout, this, &NetworkSource::reconnect);
     m_watchdog->start();
 }
 
+void NetworkSource::ensureMjpegWorker()
+{
+    if (m_mjpegWorker)
+        return;
+
+    // Без родителя: объект переезжает в свой поток, а владелец с объектом в
+    // другом потоке Qt не разрешает.
+    m_mjpegWorker = new MjpegWorker;
+    m_mjpegWorker->moveToThread(&m_mjpegThread);
+
+    connect(&m_mjpegThread, &QThread::finished, m_mjpegWorker, &QObject::deleteLater);
+
+    // Кадр и статус приходят из чужого потока — Qt сам доставит их в этот
+    // через очередь событий, блокировать здесь нечего.
+    connect(m_mjpegWorker, &MjpegWorker::frameReady,
+            this, &NetworkSource::onMjpegFrame);
+    connect(m_mjpegWorker, &MjpegWorker::statusChanged,
+            this, [this](const QString &text) { setStatus(text); });
+    connect(m_mjpegWorker, &MjpegWorker::streamError,
+            this, &NetworkSource::onMjpegError);
+
+    m_mjpegThread.setObjectName(QStringLiteral("mjpeg"));
+    m_mjpegThread.start();
+}
+
+void NetworkSource::onMjpegFrame(const QImage &image)
+{
+    m_lastFrameMs = QDateTime::currentMSecsSinceEpoch();
+    m_attempts = 0;
+    publish(QVideoFrame(image));
+}
+
+void NetworkSource::onMjpegError(const QString &reason)
+{
+    // Само переподключение делает reconnect() по сторожу молчания — так оба
+    // повода обрыва (тишина и явная ошибка) идут одним путём с одной и той
+    // же нарастающей паузой, а не двумя параллельными.
+    setStatus(reason);
+}
+
 void NetworkSource::openStream()
+{
+    if (m_activeUrl.isEmpty())
+        m_activeUrl = m_descriptor.target();
+
+    const QUrl url(m_activeUrl);
+    m_usingMjpeg = url.scheme().compare(QLatin1String("http"), Qt::CaseInsensitive) == 0
+                || url.scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) == 0;
+
+    m_lastFrameMs = QDateTime::currentMSecsSinceEpoch();
+    setStatus(m_attempts == 0 ? QStringLiteral("подключение к камере…")
+                              : QStringLiteral("переподключение (попытка %1)…")
+                                    .arg(m_attempts));
+
+    if (m_usingMjpeg) {
+        ensureMjpegWorker();
+        // start() у самого MjpegWorker сам приводит себя в порядок перед
+        // новым подключением — отдельно останавливать здесь нечего.
+        QMetaObject::invokeMethod(m_mjpegWorker, "start", Qt::QueuedConnection,
+                                  Q_ARG(QUrl, url));
+    } else {
+        openPlayerStream(url);
+    }
+}
+
+void NetworkSource::openPlayerStream(const QUrl &url)
 {
     m_player = new QMediaPlayer(this);
     m_sink = new QVideoSink(this);
@@ -371,22 +438,23 @@ void NetworkSource::openStream()
                               : description);
             });
 
-    if (m_activeUrl.isEmpty())
-        m_activeUrl = m_descriptor.target();
-
-    m_lastFrameMs = QDateTime::currentMSecsSinceEpoch();
-    m_player->setSource(QUrl(m_activeUrl));
-    setStatus(m_attempts == 0 ? QStringLiteral("подключение к камере…")
-                              : QStringLiteral("переподключение (попытка %1)…")
-                                    .arg(m_attempts));
+    m_player->setSource(url);
     m_player->play();
 }
 
 void NetworkSource::reconnect()
 {
-    const qint64 idle = QDateTime::currentMSecsSinceEpoch() - m_lastFrameMs;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const qint64 idle = now - m_lastFrameMs;
     if (idle < kStallTimeoutMs)
         return;   // кадры идут, всё в порядке
+
+    // ВЫДЕРЖИВАЕМ РАСТУЩУЮ ПАУЗУ МЕЖДУ ПОПЫТКАМИ. Сторож тикает каждые
+    // kStallCheckMs — без этой проверки он пересоздавал бы проигрыватель на
+    // каждый свой тик, сколько бы подряд попытка ни проваливалась.
+    if (m_attempts > 0 && now - m_lastAttemptMs < backoffMs(m_attempts))
+        return;
+    m_lastAttemptMs = now;
 
     ++m_attempts;
 
@@ -408,9 +476,10 @@ void NetworkSource::reconnect()
         }
     }
 
-    // Полное пересоздание проигрывателя, а не просто повторный play():
-    // после обрыва RTSP-сессии проигрыватель остаётся в негодном состоянии, и
-    // «продолжить» его нельзя — только начать заново.
+    // Проигрыватель RTSP после обрыва сессии остаётся в негодном состоянии,
+    // и «продолжить» его нельзя — только начать заново. У MjpegWorker так не
+    // нужно: его собственный start() сам приводит себя в порядок перед новым
+    // подключением (см. openStream()).
     if (m_player) {
         m_player->stop();
         delete m_player;
@@ -428,6 +497,11 @@ void NetworkSource::stop()
         m_watchdog->stop();
         delete m_watchdog;
         m_watchdog = nullptr;
+    }
+    if (m_mjpegThread.isRunning()) {
+        m_mjpegThread.quit();
+        m_mjpegThread.wait(2000);
+        m_mjpegWorker = nullptr;   // уже удалён через deleteLater при finished()
     }
     if (m_player) {
         m_player->stop();

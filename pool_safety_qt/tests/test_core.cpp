@@ -26,6 +26,7 @@
 #include "core/SourceDescriptor.h"
 #include "core/SourceHub.h"
 #include "core/VideoSource.h"
+#include "core/MjpegWorker.h"
 #include "core/AlarmController.h"
 #include "core/AnalysisWorker.h"
 #include "core/PersonDetector.h"
@@ -142,6 +143,16 @@ private slots:
     void backgroundSurvivesSaveAndLoad();
     void backgroundRefusesForeignGrid();
     void rtspFallsBackToHttpForPhoneCamera();
+    void reconnectBackoffGrowsAndCaps();
+    void staleSettingsAreRewrittenAfterMigration();
+    void newDefaultModelIsFast();
+
+    // --- собственный приёмник MJPEG -------------------------------------
+    void mjpegExtractsSingleCompleteFrame();
+    void mjpegWaitsForIncompletePayload();
+    void mjpegSkipsStaleFramesUnderBacklog();
+    void mjpegRecoversFromGarbageBeforeHeader();
+    void mjpegAcceptsLowercaseHeader();
 
     // --- темп разбора -------------------------------------------------------
     void verdictSurvivesBetweenPoseRuns();
@@ -1883,6 +1894,169 @@ void CoreTests::rtspFallsBackToHttpForPhoneCamera()
                 QStringLiteral("rtsp://192.168.1.64:554/Streaming/Channels/102"))
                 .isEmpty());
     QVERIFY(core::CameraDiscovery::httpFallbackFor(QString()).isEmpty());
+}
+
+void CoreTests::reconnectBackoffGrowsAndCaps()
+{
+    // ВОТ ПРИЧИНА, ПО КОТОРОЙ ПРОГРАММА ГРУЗИЛА ПРОЦЕССОР ВХОЛОСТУЮ. Сторож
+    // проверял связь каждые две секунды и, найдя молчание, пересоздавал
+    // проигрыватель — на КАЖДЫЙ тик, сколько бы подряд попытка ни
+    // проваливалась. На объекте с одной нестабильной камерой это дало 163
+    // попытки за десять минут и около трёх с половиной ядер процессора
+    // непрерывно: разумная камера с перебоями раз в минуту не отличалась от
+    // полностью мёртвой.
+    //
+    // Пауза должна расти с числом неудач и не превышать потолок.
+    QCOMPARE(core::NetworkSource::backoffMs(0), qint64(0));
+    QCOMPARE(core::NetworkSource::backoffMs(1), qint64(1000));
+    QCOMPARE(core::NetworkSource::backoffMs(2), qint64(2000));
+    QCOMPARE(core::NetworkSource::backoffMs(5), qint64(5000));
+
+    // Потолок — тридцать секунд, а не бесконечный рост: как только камера
+    // снова станет доступна, связь обязана восстановиться быстро, а не через
+    // час нарастающего ожидания.
+    QCOMPARE(core::NetworkSource::backoffMs(30), core::NetworkSource::kMaxBackoffMs);
+    QCOMPARE(core::NetworkSource::backoffMs(1000), core::NetworkSource::kMaxBackoffMs);
+
+    // Отрицательное число попыток не может дать отрицательную (то есть
+    // нулевую-в-обход) паузу.
+    QCOMPARE(core::NetworkSource::backoffMs(-5), qint64(0));
+}
+
+void CoreTests::staleSettingsAreRewrittenAfterMigration()
+{
+    // РОВНО ЭТО СБИЛО С ТОЛКУ ПРИ РАЗБОРЕ ЖАЛОБЫ НА НАГРУЗКУ. Файл без поля
+    // "версия_настроек" и со старым "интервал_разбора_мс": 400 выглядит так,
+    // будто перевод на быстрый темп (120 мс) не сработал — а он сработал,
+    // просто только в памяти этого запуска, и на диске остался прежний файл.
+    // Программа честно работала быстро, а diagnostика по файлу лгала.
+    const QString path = m_dir.filePath(QStringLiteral("старые_настройки.json"));
+
+    QJsonObject detection;
+    detection.insert(QStringLiteral("интервал_разбора_мс"), 400);
+    QJsonObject root;
+    root.insert(QStringLiteral("распознавание"), detection);
+    // Поля "версия_настроек" нет вовсе — как в файле, написанном до её
+    // появления.
+
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(root).toJson());
+    file.close();
+
+    const core::Settings loaded = core::Settings::load(path);
+    QCOMPARE(loaded.detectIntervalMs, 120);
+
+    // Файл на диске обязан отражать то, что программа сделала, а не то, чем
+    // он был написан. Перечитываем его напрямую, в обход Settings::load(),
+    // чтобы проверить именно ФАЙЛ, а не только память.
+    QFile check(path);
+    QVERIFY(check.open(QIODevice::ReadOnly));
+    const QJsonObject onDisk = QJsonDocument::fromJson(check.readAll()).object();
+    QVERIFY2(onDisk.contains(QStringLiteral("версия_настроек")),
+             "файл не переписан после перевода на новые значения");
+    const QJsonObject detectionOnDisk =
+        onDisk.value(QStringLiteral("распознавание")).toObject();
+    QCOMPARE(detectionOnDisk.value(QStringLiteral("интервал_разбора_мс")).toInt(), 120);
+}
+
+void CoreTests::newDefaultModelIsFast()
+{
+    // Измерено (ПРОЕКТ.md, раздел 6): YOLOX-tiny находит 5,67 человека против
+    // 5,73 у YOLOX-s на тех же 120 кадрах — разница на грани погрешности — и
+    // при этом втрое быстрее. Для новой, ещё не настроенной установки это
+    // верный выбор по умолчанию.
+    const core::Settings fresh;
+    QCOMPARE(fresh.detectorModel, core::PersonDetector::Model::Fast);
+}
+
+// ==================================================== приёмник MJPEG
+//
+//  ПРОВЕРЯЕТСЯ БЕЗ НАСТОЯЩЕЙ СЕТИ И БЕЗ НАСТОЯЩЕГО JPEG. extractLatestFrame()
+//  работает с сырыми байтами и ничего не декодирует — кадром для неё
+//  достаточно назвать любую последовательность байтов, лишь бы был правильно
+//  оформлен заголовок Content-Length. Формат байт в байт как у настоящей
+//  камеры (проверено побайтовым разбором потока с IP Webcam).
+
+namespace {
+
+/// Собрать одну часть MJPEG-потока с указанным телом.
+QByteArray mjpegPart(const QByteArray &body,
+                     const QByteArray &boundary = QByteArrayLiteral("bnd"))
+{
+    QByteArray part = "\r\n--" + boundary + "\r\n";
+    part += "Content-Type: image/jpeg\r\n";
+    part += "Content-Length: " + QByteArray::number(body.size()) + "\r\n";
+    part += "\r\n";
+    part += body;
+    return part;
+}
+
+} // namespace
+
+void CoreTests::mjpegExtractsSingleCompleteFrame()
+{
+    QByteArray buffer = mjpegPart(QByteArrayLiteral("кадр-1"));
+    const QByteArray frame = core::MjpegWorker::extractLatestFrame(buffer);
+
+    QCOMPARE(frame, QByteArrayLiteral("кадр-1"));
+    QVERIFY2(buffer.isEmpty(), "разобранные байты должны уйти из буфера");
+}
+
+void CoreTests::mjpegWaitsForIncompletePayload()
+{
+    // Камера ещё не дослала тело кадра целиком — заявленная в заголовке
+    // длина больше того, что реально пришло. Разбирать нечего, и буфер
+    // трогать нельзя: следующий readyRead() довесит недостающее.
+    QByteArray full = mjpegPart(QByteArrayLiteral("0123456789"));
+    QByteArray partial = full.left(full.size() - 4);
+    const QByteArray original = partial;
+
+    const QByteArray frame = core::MjpegWorker::extractLatestFrame(partial);
+
+    QVERIFY2(frame.isEmpty(), "неполный кадр не должен считаться готовым");
+    QCOMPARE(partial, original);
+}
+
+void CoreTests::mjpegSkipsStaleFramesUnderBacklog()
+{
+    // СМЫСЛ ВСЕГО КЛАССА. Сеть успела прислать три кадра быстрее, чем мы их
+    // разбираем — ровно то, что раньше копилось в очереди QMediaPlayer и
+    // превращалось в растущее отставание показа от жизни. Разобрать нужно
+    // все три (иначе разбор буфера сам начнёт отставать от сети), но вернуть
+    // — только третий, самый свежий. Первые два не должны попасть даже в
+    // промежуточный результат: их не декодируют.
+    QByteArray buffer = mjpegPart(QByteArrayLiteral("старый"))
+                      + mjpegPart(QByteArrayLiteral("средний"))
+                      + mjpegPart(QByteArrayLiteral("свежий"));
+
+    const QByteArray frame = core::MjpegWorker::extractLatestFrame(buffer);
+
+    QCOMPARE(frame, QByteArrayLiteral("свежий"));
+    QVERIFY2(buffer.isEmpty(), "все три кадра должны быть разобраны и убраны из буфера");
+}
+
+void CoreTests::mjpegRecoversFromGarbageBeforeHeader()
+{
+    // Число после "Content-Length:" оказалось не числом — совпадение
+    // случайное или данные повреждены. Разбор не должен встать намертво на
+    // этом месте: отступаем на один байт и ищем следующее вхождение.
+    QByteArray buffer = QByteArrayLiteral("мусорContent-Length: не-число\r\n\r\n")
+                      + mjpegPart(QByteArrayLiteral("настоящий"));
+
+    const QByteArray frame = core::MjpegWorker::extractLatestFrame(buffer);
+
+    QCOMPARE(frame, QByteArrayLiteral("настоящий"));
+}
+
+void CoreTests::mjpegAcceptsLowercaseHeader()
+{
+    // Не все серверы пишут заголовки в Title-Case — принимаем и строчные.
+    QByteArray buffer = QByteArrayLiteral("\r\n--bnd\r\ncontent-length: 5\r\n\r\nHELLO");
+
+    const QByteArray frame = core::MjpegWorker::extractLatestFrame(buffer);
+
+    QCOMPARE(frame, QByteArrayLiteral("HELLO"));
 }
 
 QTEST_MAIN(CoreTests)

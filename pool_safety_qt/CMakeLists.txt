@@ -52,9 +52,19 @@ qt_standard_project_setup()
 #
 # Ключ -c 65001 говорит, что файл в UTF-8: иначе русские строки попадут в
 # свойства файла битыми.
+#
+# OBJECT_DEPENDS НА Version.h — НЕ ДЛЯ КРАСОТЫ. .rc включает этот заголовок
+# напрямую (см. его комментарий), но CMake не разбирает #include внутри
+# .rc-файлов так, как разбирает их в .cpp: без этой строки Ninja не видел
+# связи и при пересборке после одной только правки Version.h оставлял старый
+# объектный файл ресурса нетронутым. Обнаружилось на живой поставке: код
+# внутри программы уже отвечал версией 1.3.1, а свойства файла в проводнике
+# показывали 1.3.0 — притом что сам .rc был давно поправлен на макросы.
 if(WIN32)
     set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} -c 65001")
     add_library(PoolSafetyResources OBJECT deploy/PoolSafety.rc)
+    set_source_files_properties(deploy/PoolSafety.rc PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/core/Version.h")
 endif()
 
 qt_add_executable(PoolSafety WIN32
@@ -66,6 +76,8 @@ qt_add_executable(PoolSafety WIN32
     src/core/SourceDescriptor.cpp
     src/core/VideoSource.h
     src/core/VideoSource.cpp
+    src/core/MjpegWorker.h
+    src/core/MjpegWorker.cpp
     src/core/SourceHub.h
     src/core/SourceHub.cpp
     src/core/DeviceRegistry.h
@@ -167,6 +179,8 @@ qt_add_executable(PoolSafetyTests
     src/core/SourceDescriptor.cpp
     src/core/VideoSource.h
     src/core/VideoSource.cpp
+    src/core/MjpegWorker.h
+    src/core/MjpegWorker.cpp
     src/core/SourceHub.h
     src/core/SourceHub.cpp
     src/core/AlarmTypes.h

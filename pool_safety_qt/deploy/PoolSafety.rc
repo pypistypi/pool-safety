@@ -8,16 +8,25 @@
 //
 //  Файл в UTF-8; кодовая страница компилятора ресурсов задана в CMakeLists
 //  (-c 65001), иначе русские строки попадут в свойства файла битыми.
+//
+//  ВЕРСИЯ БЕРЁТСЯ ИЗ src/core/Version.h, А НЕ ЗАДАЁТСЯ ЗДЕСЬ. Раньше была
+//  задана прямо тут, отдельным числом, и после того как версию свели в одно
+//  место, про этот файл забыли: свойства файла в проводнике показывали
+//  «1.0.0», когда сама программа отвечала уже версией 1.3.0. Путь
+//  относительный и без ключа -I: у этой цели нарочно нет путей включения —
+//  windres передаёt их без кавычек, и путь «ИИ наблюдение» разваливается по
+//  пробелу (см. CMakeLists.txt).
 // ---------------------------------------------------------------------------
 
 #include <windows.h>
+#include "../src/core/Version.h"
 
 // Значок с наименьшим номером становится значком программы в проводнике.
 IDI_ICON1 ICON "PoolSafety.ico"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     1,0,0,0
-PRODUCTVERSION  1,0,0,0
+FILEVERSION     POOL_SAFETY_VERSION_MAJOR,POOL_SAFETY_VERSION_MINOR,POOL_SAFETY_VERSION_PATCH,0
+PRODUCTVERSION  POOL_SAFETY_VERSION_MAJOR,POOL_SAFETY_VERSION_MINOR,POOL_SAFETY_VERSION_PATCH,0
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 FILEFLAGS       0
 FILEOS          VOS_NT_WINDOWS32
@@ -31,11 +40,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Система видеонаблюдения за бассейном"
             VALUE "FileDescription",  "Наблюдение за бассейном — пост оператора"
-            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "FileVersion",      POOL_SAFETY_VERSION_STR
             VALUE "InternalName",     "PoolSafety"
             VALUE "OriginalFilename", "PoolSafety.exe"
             VALUE "ProductName",      "Наблюдение за бассейном"
-            VALUE "ProductVersion",   "1.0.0"
+            VALUE "ProductVersion",   POOL_SAFETY_VERSION_STR
             VALUE "Comments",         "Распознавание людей и опасных положений. Работает без интернета, лица не распознаются."
         END
     END

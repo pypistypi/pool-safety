@@ -11,6 +11,7 @@
 #include "core/AlarmTypes.h"
 #include "core/AnalysisTypes.h"
 #include "core/EventLog.h"
+#include "core/SingleInstance.h"
 #include "core/Version.h"
 #include "core/SituationRules.h"
 
@@ -38,6 +39,24 @@ bool claimSingleInstance()
     return handle != nullptr && GetLastError() != ERROR_ALREADY_EXISTS;
 }
 
+/// Разбудить уже работающую копию вместо тупикового сообщения.
+///
+/// true — окно первой копии найдено и разбужено, вторую можно тихо закрыть.
+/// false — окна не нашли (редкий случай: висящий процесс без окна), тогда
+/// стоит хотя бы объяснить, в чём дело, а не молча выйти.
+bool wakeRunningInstance()
+{
+    const HWND window = FindWindowW(nullptr, core::singleInstance::kMainWindowTitle);
+    if (!window)
+        return false;
+
+    // Окно могло быть свёрнуто в трей (скрыто) — обычный ShowWindow тут не
+    // поможет, само окно ждёт именно это сообщение и знает, что с ним делать
+    // (те же три вызова, что у пункта «Показать окно» в значке у часов).
+    PostMessageW(window, core::singleInstance::restoreMessage(), 0, 0);
+    return true;
+}
+
 } // namespace
 #endif
 
@@ -47,12 +66,20 @@ int main(int argc, char *argv[])
 
 #ifdef Q_OS_WIN
     if (!claimSingleInstance()) {
+        // Первым делом пробуем разбудить работающую копию — это и есть то,
+        // чего оператор ждёт, нажимая ярлык второй раз. Диалог ниже — только
+        // если будить оказалось некого (окна не нашли).
+        if (wakeRunningInstance())
+            return 0;
+
         QMessageBox::information(
             nullptr, QStringLiteral("Программа уже запущена"),
             QStringLiteral(
-                "«Наблюдение за бассейном» уже работает на этом компьютере.\n\n"
-                "Вторая копия не нужна: камеры Windows не отдаёт дважды, и её "
-                "панели остались бы пустыми."));
+                "«Наблюдение за бассейном» уже работает на этом компьютере, "
+                "но её окно найти не удалось.\n\n"
+                "Проверьте значок у часов — вероятно, программа свёрнута "
+                "туда. Если и там её нет, завершите процесс PoolSafety.exe "
+                "в диспетчере задач и запустите программу заново."));
         return 0;
     }
 #endif

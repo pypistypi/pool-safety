@@ -14,13 +14,16 @@
 // ---------------------------------------------------------------------------
 
 #include "core/SourceDescriptor.h"
+#include "core/MjpegWorker.h"
 
 #include <QObject>
 #include <QVideoFrame>
 #include <QSize>
 #include <QElapsedTimer>
+#include <QThread>
 
 class QTimer;
+class QUrl;
 
 class QCamera;
 class QCameraDevice;
@@ -158,22 +161,67 @@ public:
     /// заминке значило бы дёргать поток на ровном месте.
     static constexpr int kAttemptsBeforeFallback = 3;
 
+    /// Наибольшая пауза между попытками переподключения.
+    ///
+    /// БЕЗ ЭТОГО ОГРАНИЧЕНИЯ ПРОГРАММА ГРУЗИЛА ПРОЦЕССОР ВХОЛОСТУЮ. Сторож
+    /// проверял связь каждые kStallCheckMs и, найдя молчание, пересоздавал
+    /// проигрыватель — тоже каждые две-три секунды, СКОЛЬКО БЫ ПОДРЯД ПОПЫТКА
+    /// НИ ПРОВАЛИВАЛАСЬ. На объекте с нестабильной Wi-Fi-камерой это дало
+    /// 163 попытки за десять минут работы, никогда не убывающей нагрузкой:
+    /// «Юго-восточный угол» в это время показывал «переподключение (попытка
+    /// 163)…», а программа держала в среднем три с половиной ядра процессора.
+    /// Разумная камера с перебоями раз в минуту не отличалась от полностью
+    /// мёртвой — ту и другую программа долбила одинаково часто.
+    ///
+    /// Теперь пауза растёт с числом подряд неудачных попыток (секунда,
+    /// две, три, …) и не превышает эту величину — 30 секунд достаточно
+    /// редко, чтобы не заметно грузить систему, и достаточно часто, чтобы
+    /// связь восстановилась быстро, как только камера снова стала доступна.
+    static constexpr qint64 kMaxBackoffMs = 30000;
+
+    /// Сколько ждать перед следующей попыткой при данном числе подряд
+    /// неудачных. Вынесена отдельно и без побочных эффектов — так её можно
+    /// проверить без настоящего сетевого потока.
+    static qint64 backoffMs(int attempts)
+    {
+        return qMin(qint64(1000) * qMax(attempts, 0), kMaxBackoffMs);
+    }
+
 private slots:
     void reconnect();
+    void onMjpegFrame(const QImage &image);
+    void onMjpegError(const QString &reason);
 
 private:
     void openStream();
+    void openPlayerStream(const QUrl &url);
+    void ensureMjpegWorker();
 
     /// Адрес, который проигрывается сейчас: либо заданный оператором, либо
     /// запасной, если основной замолчал.
     QString m_activeUrl;
     bool m_usingFallback = false;
 
+    /// true — открыт через MjpegWorker (http://), false — через QMediaPlayer
+    /// (rtsp://). См. MjpegWorker.h — там же измерение, почему это разделение
+    /// того стоило.
+    bool m_usingMjpeg = false;
+
+    // --- путь http://: собственный разбор, вне потока интерфейса -----------
+    QThread m_mjpegThread;
+    MjpegWorker *m_mjpegWorker = nullptr;
+
+    // --- путь rtsp://: как раньше, через Qt Multimedia ----------------------
     QMediaPlayer *m_player = nullptr;
     QVideoSink *m_sink = nullptr;
+
     QTimer *m_watchdog = nullptr;
     qint64 m_lastFrameMs = 0;
     int m_attempts = 0;
+
+    /// Когда была последняя попытка переподключения — чтобы выдержать паузу,
+    /// растущую с числом неудач, а не гнать сторож на каждый его тик.
+    qint64 m_lastAttemptMs = 0;
 };
 
 class StillImageSource : public VideoSource

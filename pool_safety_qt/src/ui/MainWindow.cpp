@@ -17,6 +17,7 @@
 #include "core/EventServer.h"
 #include "core/AppPaths.h"
 #include "core/CameraDiscovery.h"
+#include "core/SingleInstance.h"
 
 #include <QApplication>
 #include <QUrl>
@@ -39,6 +40,10 @@
 #include <QFileInfo>
 #include <QSystemTrayIcon>
 #include <QMenu>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 namespace ui {
 
@@ -1155,6 +1160,25 @@ void MainWindow::showFromTray()
     raise();
     activateWindow();
 }
+
+#ifdef Q_OS_WIN
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+    if (eventType == "windows_generic_MSG") {
+        auto *msg = static_cast<MSG *>(message);
+        if (msg->message == core::singleInstance::restoreMessage()) {
+            // Оператор нажал ярлык второй раз — программа уже работает, но
+            // была свёрнута в трей (или просто за другими окнами). Ровно то
+            // же самое, что пункт «Показать окно» в меню значка у часов.
+            showFromTray();
+            if (result)
+                *result = 0;
+            return true;
+        }
+    }
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+#endif
 
 void MainWindow::onTrayActivated(int reason)
 {

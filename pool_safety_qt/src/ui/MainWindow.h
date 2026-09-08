@@ -75,6 +75,13 @@ public:
 protected:
     void closeEvent(QCloseEvent *event) override;
 
+#ifdef Q_OS_WIN
+    /// Ловит сообщение от второй, только что запущенной копии программы:
+    /// «разбуди своё окно». См. core/SingleInstance.h — там же объяснено,
+    /// какую тупиковую ситуацию это устраняет.
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
+#endif
+
 private slots:
     void onAlarmRequested(int panelId);
     void onAlarmStateChanged(core::AlarmState state);

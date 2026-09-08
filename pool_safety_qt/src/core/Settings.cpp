@@ -128,6 +128,8 @@ Settings Settings::load(const QString &path)
     //
     // Меняем только явно старое значение. Если оператор поставил свой темп,
     // трогать его нельзя: он мог сознательно разгрузить слабый компьютер.
+    const bool needsMigration = settings.version < Settings::kCurrentVersion;
+
     if (settings.version < 2 && settings.detectIntervalMs == 400)
         settings.detectIntervalMs = 120;
     settings.version = Settings::kCurrentVersion;
@@ -166,6 +168,16 @@ Settings Settings::load(const QString &path)
     th.childAlarmAllowed        = flag(t, "ребёнок_разрешить_тревогу",
                                        th.childAlarmAllowed);
     th.window                   = number(t, "окно_разбора_с", th.window);
+
+    // ФАЙЛ ЗАПИСЫВАЕТСЯ СРАЗУ, ЕСЛИ ЧТО-ТО ПЕРЕВЕДЕНО. Иначе перевод живёт
+    // только в памяти этого запуска: программа работает уже по новым
+    // значениям, а файл на диске выглядит нетронутым — старым, с прежним
+    // "версия_настроек" отсутствующим вовсе. Ровно это увело по ложному следу
+    // при разборе жалобы на нагрузку: файл показывал "интервал_разбора_мс":
+    // 400, хотя запущенная программа честно работала на 120 — миграция
+    // сработала, просто ни разу не сохранилась.
+    if (needsMigration)
+        settings.save(path);
 
     return settings;
 }
