@@ -13,7 +13,7 @@
 
 | | Ссылка | Для чего |
 |---|---|---|
-| 💻 Программа для ПК | [PoolSafety-Setup-1.3.0.exe](https://github.com/pypistypi/pool-safety/releases/latest/download/PoolSafety-Setup-1.3.0.exe) | Пост оператора: видео с камер, распознавание, тревога |
+| 💻 Программа для ПК | [PoolSafety-Setup-1.3.3.exe](https://github.com/pypistypi/pool-safety/releases/latest/download/PoolSafety-Setup-1.3.3.exe) | Пост оператора: видео с камер, распознавание, тревога |
 | 📱 Приложение для телефона | [PoolSafetyWatch-1.3.0.apk](https://github.com/pypistypi/pool-safety/releases/latest/download/PoolSafetyWatch-1.3.0.apk) | Уведомления и видео с камер на Android 8.0+ |
 
 Все выпуски: [Releases](https://github.com/pypistypi/pool-safety/releases).
