@@ -118,6 +118,8 @@ private slots:
     // --- защита от прежних ошибок -----------------------------------------
     void durationsUseFullHistoryNotWindow();
     void worstVerdictWinsBySeverity();
+    void fallAlarmSurvivesBeyondHistoryWindow();
+    void slowLieDownIsNotMistakenForAFall();
 
     // --- настройки и журнал ------------------------------------------------
     // --- IP-камеры ---------------------------------------------------------
@@ -161,6 +163,7 @@ private slots:
     void verdictSurvivesBetweenPoseRuns();
 
     void settingsSurviveSaveAndLoad();
+    void invalidFpsCapFallsBackToThirty();
     void eventLogWritesReadableFile();
 
 private:
@@ -1197,6 +1200,71 @@ void CoreTests::durationsUseFullHistoryNotWindow()
     QVERIFY(metrics.stillSeconds > 10.0);
 }
 
+void CoreTests::fallAlarmSurvivesBeyondHistoryWindow()
+{
+    // ПРОПУЩЕННАЯ ТРЕВОГА, ВОСПРОИЗВЕДЁННАЯ И ИСПРАВЛЕННАЯ. Правило падения
+    // раньше сверялось с резкостью перехода в горизонталь заново на каждом
+    // разборе, а резкость считалась по хранимой истории (не длиннее
+    // PersonTracker::kHistorySeconds = 15 с). Человек, упавший и оставшийся
+    // лежать дольше пятнадцати секунд, переставал давать основание: сам
+    // всплеск наклона уходил из истории, и правило гасло — оператор видел
+    // «норма», хотя человек так и лежал без сознания. Именно так одна
+    // настоящая тревога однажды не прозвучала.
+    core::Track track(1, 0.0);
+    double time = 0.0;
+
+    // Стоит.
+    for (; time <= 1.2; time += 0.4)
+        track.add(time, makePose(QPointF(600, 400), 100, 2));
+
+    // Падает — резкий переход в горизонталь за одну выборку (около 200°/с,
+    // втрое больше порога).
+    time += 0.4;   // 1,6 с
+    track.add(time, makePose(QPointF(600, 400), 100, 85));
+
+    // И лежит без движения ещё двадцать три секунды — заведомо дольше
+    // пятнадцатисекундной хранимой истории, внутри которой случилось падение.
+    for (; time <= 25.0; time += 0.4)
+        track.add(time, makePose(QPointF(600, 400), 100, 85));
+
+    QVERIFY2(track.fallTiltRate() > 0.0,
+             "резкость падения не должна обнуляться, пока человек не встал");
+
+    const core::Verdict verdict =
+        verdictFor(analyseTrack(track), core::Situation::Fall);
+    QCOMPARE(verdict.level, core::Level::Alarm);
+    QVERIFY2(verdict.reasons.join(QLatin1Char(' ')).contains(QStringLiteral("не встаёт")),
+             "тревога без объяснения бесполезна оператору");
+}
+
+void CoreTests::slowLieDownIsNotMistakenForAFall()
+{
+    // Загорающий садится на лежак и ложится за несколько секунд, не рывком.
+    // Правило падения не должно спутать это с падением: отличает их именно
+    // резкость перехода, а не конечное горизонтальное положение.
+    core::Track track(1, 0.0);
+    double time = 0.0;
+    double tilt = 2.0;
+
+    for (; time <= 0.8; time += 0.4)
+        track.add(time, makePose(QPointF(600, 400), 100, tilt));
+
+    // Плавно ложится: около 9° за 0,4 с — 22°/с, вдвое меньше порога падения.
+    for (int step = 0; step < 9; ++step) {
+        time += 0.4;
+        tilt = qMin(85.0, tilt + 9.0);
+        track.add(time, makePose(QPointF(600, 400), 100, tilt));
+    }
+
+    // И лежит ещё немного — если бы правило спутало это с падением, тревога
+    // была бы уже видна.
+    for (; time <= 8.0; time += 0.4)
+        track.add(time, makePose(QPointF(600, 400), 100, 85));
+
+    QCOMPARE(verdictFor(analyseTrack(track), core::Situation::Fall).level,
+             core::Level::Normal);
+}
+
 void CoreTests::worstVerdictWinsBySeverity()
 {
     core::Verdict attention;
@@ -1233,6 +1301,7 @@ void CoreTests::settingsSurviveSaveAndLoad()
     settings.searchConfidence = 0.42;
     settings.thresholds.unconsciousStillAlarm = 7.5;
     settings.thresholds.childHeadToTorso = 0.36;
+    settings.displayFpsCap = 60;
     QVERIFY(settings.save(path));
 
     const core::Settings loaded = core::Settings::load(path);
@@ -1244,6 +1313,23 @@ void CoreTests::settingsSurviveSaveAndLoad()
     QCOMPARE(loaded.searchConfidence, 0.42);
     QCOMPARE(loaded.thresholds.unconsciousStillAlarm, 7.5);
     QCOMPARE(loaded.thresholds.childHeadToTorso, 0.36);
+    QCOMPARE(loaded.displayFpsCap, 60);
+}
+
+void CoreTests::invalidFpsCapFallsBackToThirty()
+{
+    // Файл настроек мог прийти испорченным или от будущей версии программы
+    // с другим набором допустимых значений. Показ не должен остаться вовсе
+    // без предела частоты — падаем на разумное умолчание.
+    const QString path = m_dir.filePath(QStringLiteral("settings_bad_fps.json"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write(QByteArrayLiteral(
+        "{\"видео\": {\"предел_кадров_в_секунду\": 17}}"));
+    file.close();
+
+    const core::Settings loaded = core::Settings::load(path);
+    QCOMPARE(loaded.displayFpsCap, 30);
 }
 
 void CoreTests::eventLogWritesReadableFile()

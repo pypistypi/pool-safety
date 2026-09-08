@@ -70,6 +70,14 @@ struct AlarmEvent {
     AlarmOrigin origin = AlarmOrigin::Manual;
     QDateTime raisedAt;
     QDateTime acknowledgedAt;
+
+    /// Короткая фраза для уведомления на телефоне — без измерений и цифр
+    /// (см. situationAlert() в SituationRules.h). Заполняется только для
+    /// тревоги, поднятой алгоритмом: details там несёт измерения для звонка
+    /// диспетчеру («Уточнение: …» в buildCallBrief), и телефону эти цифры
+    /// ни к чему. У тревоги, объявленной оператором вручную, details и так
+    /// короткое — эта строка остаётся пустой, и телефон берёт details.
+    QString phoneSummary;
 };
 
 /// Собрать текст, который оператор диктует в трубку.

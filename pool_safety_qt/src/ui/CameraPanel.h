@@ -82,6 +82,9 @@ public:
     /// Показывать ли скелеты поверх людей.
     void setSkeletonsVisible(bool visible);
 
+    /// Предел частоты показа — общий для всех панелей, задаётся в настройках.
+    void setFpsLimit(int fps);
+
 signals:
     void sourceChanged(int panelId, const core::SourceDescriptor &descriptor);
     /// Оператор объявил тревогу с этой панели.

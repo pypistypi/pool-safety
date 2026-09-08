@@ -337,4 +337,9 @@ void CameraPanel::setSkeletonsVisible(bool visible)
     m_view->setSkeletonsVisible(visible);
 }
 
+void CameraPanel::setFpsLimit(int fps)
+{
+    m_view->setFpsLimit(fps);
+}
+
 } // namespace ui

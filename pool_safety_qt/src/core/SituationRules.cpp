@@ -181,12 +181,22 @@ Verdict unconscious(const Track &track, const WindowMetrics &metrics, const Thre
 //
 //  Само по себе падение ещё не беда — упавший обычно встаёт. Опасно, если он
 //  остался лежать.
-Verdict fall(const Track &, const WindowMetrics &metrics, const Thresholds &t)
+//
+//  ПОЧЕМУ РЕЗКОСТЬ ПЕРЕХОДА БЕРЁТСЯ ИЗ ДОРОЖКИ, А НЕ ИЗ ОКНА РАЗБОРА. Track
+//  запоминает её ОДИН РАЗ, в момент перехода в горизонталь (см.
+//  Track::fallTiltRate()), и хранит, пока человек не встанет. Раньше здесь
+//  читалось WindowMetrics::tiltChange — значение, посчитанное по хранимой
+//  истории (не длиннее 15 секунд). Человек, упавший и оставшийся лежать
+//  дольше пятнадцати секунд, переставал давать основание: сам всплеск
+//  наклона уходил из истории, tiltChange падал до нуля, и правило гасло —
+//  панель показывала «норма», хотя человек так и лежал без сознания. Ровно
+//  так одна настоящая тревога однажды не прозвучала.
+Verdict fall(const Track &track, const WindowMetrics &metrics, const Thresholds &t)
 {
     Verdict verdict;
     verdict.situation = Situation::Fall;
 
-    if (metrics.tiltChange < t.fallTiltRate)
+    if (track.fallTiltRate() < t.fallTiltRate)
         return verdict;
 
     const double lying = metrics.horizontalSeconds;
@@ -201,7 +211,7 @@ Verdict fall(const Track &, const WindowMetrics &metrics, const Thresholds &t)
 
     verdict.heldSeconds = lying;
     verdict.reasons << QStringLiteral("резкий переход в горизонталь (%1°/с)")
-                           .arg(int(metrics.tiltChange));
+                           .arg(int(track.fallTiltRate()));
 
     if (lying >= t.fallStayAlarm) {
         verdict.reasons << QStringLiteral("после падения не встаёт %1 с").arg(seconds(lying));
@@ -456,6 +466,18 @@ QString situationAction(Situation situation)
                               "нужно внимание.");
     }
     return QString();
+}
+
+QString situationAlert(Situation situation)
+{
+    switch (situation) {
+    case Situation::Drowning:    return QStringLiteral("Человек в воде не двигается");
+    case Situation::Unconscious: return QStringLiteral("Человек без сознания");
+    case Situation::Fall:        return QStringLiteral("Человек упал и не встаёт");
+    case Situation::ChildAlone:  return QStringLiteral("Ребёнок один у воды");
+    case Situation::Unsteady:    return QStringLiteral("Шаткая походка у воды");
+    }
+    return QStringLiteral("Опасное положение в зоне бассейна");
 }
 
 QString levelText(Level level)

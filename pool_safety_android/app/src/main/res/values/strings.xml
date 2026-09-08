@@ -39,7 +39,7 @@
     <string name="updates_check_now">Проверить сейчас</string>
     <string name="updates_checking">Проверка…</string>
     <string name="updates_none">Установлена последняя версия</string>
-    <string name="updates_failed">Не удалось проверить — нет связи с интернетом</string>
+    <string name="updates_failed">Не удалось проверить: %1$s</string>
     <string name="updates_available_title">Доступно обновление</string>
     <string name="updates_available_message">Версия %1$s. У вас установлена %2$s.</string>
     <string name="updates_download">Скачать</string>

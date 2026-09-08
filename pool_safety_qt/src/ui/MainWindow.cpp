@@ -453,6 +453,9 @@ void MainWindow::applySettingsToParts()
     m_chime->setEnabled(m_settings.soundEnabled);
     m_chime->setVolumes(m_settings.alarmVolume, m_settings.presenceVolume);
 
+    for (CameraPanel *panel : m_panels)
+        panel->setFpsLimit(m_settings.displayFpsCap);
+
     if (!m_analysis)
         return;
 
@@ -657,7 +660,14 @@ void MainWindow::onAlarmRaised(const core::AlarmEvent &event)
 {
     // Сюда приходит и тревога от разбора кадра, и объявленная оператором.
     // Телефон обязан узнать об обеих и одинаково быстро.
-    QString details = event.details;
+    //
+    // ДЛЯ ТЕЛЕФОНА — КОРОТКАЯ ФРАЗА, НЕ event.details. У тревоги от алгоритма
+    // details несёт измерения («резкий переход в горизонталь (62°/с)») —
+    // это то, что оператор читает диспетчеру («Уточнение: …» в
+    // buildCallBrief), а не то, что нужно спасателю на бегу. phoneSummary
+    // заполняется только для автоматической тревоги (см. onDangerDetected);
+    // для тревоги, объявленной оператором вручную, details и так короткое.
+    QString details = event.phoneSummary.isEmpty() ? event.details : event.phoneSummary;
     if (details.isEmpty())
         details = core::circumstanceAction(event.circumstance);
 
@@ -755,9 +765,12 @@ void MainWindow::onDangerDetected(const core::DangerReport &report)
         // слалась тревога, телефон выл сиреной там, где на посту её нет: на
         // объекте, где автотревога ещё не настроена, это первый способ
         // приучить спасателя не верить сигналу.
+        //
+        // situationAlert(), А НЕ report.reasons — на телефоне короткий факт
+        // без измерений, цифры и углы наклона там только мешают.
         notifyPhones(QStringLiteral("attention"), report.panelId, zone,
                      core::situationText(report.situation),
-                     report.reasons.join(QStringLiteral("; ")), 1);
+                     core::situationAlert(report.situation), 1);
 
         if (m_settings.reactionsEnabled) {
             showNotice(QStringLiteral("%1: %2. Автотревога выключена в настройках.")
@@ -780,6 +793,10 @@ void MainWindow::onDangerDetected(const core::DangerReport &report)
     event.circumstance = circumstanceFor(report);
     event.details = report.reasons.join(QStringLiteral("; "))
                     + QStringLiteral(". ") + report.advice();
+    // Короткая фраза для телефона — details несёт измерения для звонка
+    // диспетчеру (buildCallBrief), а спасателю с телефоном в руке нужен
+    // голый факт. См. AlarmEvent::phoneSummary.
+    event.phoneSummary = core::situationAlert(report.situation);
     event.origin = core::AlarmOrigin::Automatic;
     event.raisedAt = QDateTime::currentDateTime();
     event.peopleInZone = report.panelId >= 0 ? m_alarm->peopleOnPanel(report.panelId)
@@ -797,7 +814,7 @@ void MainWindow::onAttentionDetected(const core::DangerReport &report)
 
     notifyPhones(QStringLiteral("attention"), report.panelId, zone,
                  core::situationText(report.situation),
-                 report.reasons.join(QStringLiteral("; ")), 1);
+                 core::situationAlert(report.situation), 1);
 
     if (!m_settings.reactionsEnabled)
         return;   // отклики выключены оператором — панель подсвечена, и хватит

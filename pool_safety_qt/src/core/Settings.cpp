@@ -101,6 +101,16 @@ Settings Settings::load(const QString &path)
                                         settings.flashTaskbarOnAlarm);
     settings.blinkOnAlarm       = flag(window, "мигать_рамкой", settings.blinkOnAlarm);
 
+    const QJsonObject video = root.value(QStringLiteral("видео")).toObject();
+    settings.displayFpsCap = integer(video, "предел_кадров_в_секунду",
+                                     settings.displayFpsCap);
+    // Файл мог прийти со старым или испорченным значением — не даём панели
+    // остаться совсем без ограничения показа или уйти в абсурдный предел.
+    if (settings.displayFpsCap != 24 && settings.displayFpsCap != 30
+        && settings.displayFpsCap != 60) {
+        settings.displayFpsCap = 30;
+    }
+
     const QJsonObject phones = root.value(QStringLiteral("телефоны")).toObject();
     settings.serverEnabled = flag(phones, "раздавать_события", settings.serverEnabled);
     settings.serverPort = integer(phones, "порт", settings.serverPort);
@@ -203,6 +213,9 @@ bool Settings::save(const QString &path) const
     sound.insert(QStringLiteral("усилить_через_с"), escalateAfterSeconds);
     sound.insert(QStringLiteral("сигнал_присутствия"), presenceSound);
 
+    QJsonObject video;
+    video.insert(QStringLiteral("предел_кадров_в_секунду"), displayFpsCap);
+
     QJsonObject window;
     window.insert(QStringLiteral("всплывать_при_уровне"), popupLevel);
     window.insert(QStringLiteral("сворачивать_в_трей"), minimizeToTray);
@@ -254,6 +267,7 @@ bool Settings::save(const QString &path) const
     root.insert(QStringLiteral("отклики"), reactions);
     root.insert(QStringLiteral("телефоны"), phones);
     root.insert(QStringLiteral("звук"), sound);
+    root.insert(QStringLiteral("видео"), video);
     root.insert(QStringLiteral("окно_при_тревоге"), window);
     root.insert(QStringLiteral("распознавание"), detection);
     root.insert(QStringLiteral("панели_с_водой"), water);

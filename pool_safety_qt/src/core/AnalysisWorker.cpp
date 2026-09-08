@@ -402,18 +402,29 @@ void AnalysisWorker::runSituations(int panelId, PanelState &state, PanelAnalysis
             // Одна и та же беда не должна сообщаться каждые полсекунды: она
             // держится десятками секунд, и повтор превратил бы её в шум,
             // который оператор перестанет замечать.
-            const QString key = QStringLiteral("%1/%2")
-                                    .arg(trackId).arg(int(worst.situation));
-            const qint64 lastTime = state.announced.value(key, -1000000);
+            //
+            // УРОВЕНЬ — ЧАСТЬ КЛЮЧА, А НЕ ТОЛЬКО ДОРОЖКА И ПОЛОЖЕНИЕ. Раньше
+            // ключ не различал «ВНИМАНИЕ» и «ТРЕВОГУ» по одному и тому же
+            // положению: объявленное «внимание» ставило отметку времени,
+            // которая следующие шестьдесят секунд не пускала уже саму
+            // ТРЕВОГУ — та требовала того же интервала от ТОЙ ЖЕ отметки.
+            // Человек падал, «внимание» успевало прозвучать и уйти в журнал
+            // за секунду-другую до того, как положение дотягивало до
+            // тревожного порога, — и настоящая тревога после этого молча
+            // проглатывалась до конца минуты. Раздельные ключи на каждый
+            // уровень не мешают друг другу: усиление всегда сообщается сразу,
+            // а от шума бережёт тот же интервал, но уже внутри своего уровня.
+            const QString levelKey = QStringLiteral("%1/%2/%3")
+                                         .arg(trackId).arg(int(worst.situation))
+                                         .arg(int(worst.level));
+            const qint64 lastTime = state.announced.value(levelKey, -1000000);
 
-            if (worst.level == Level::Alarm) {
-                if (now - lastTime > m_repeatDangerMs) {
-                    state.announced.insert(key, now);
+            if (now - lastTime > m_repeatDangerMs) {
+                state.announced.insert(levelKey, now);
+                if (worst.level == Level::Alarm)
                     emit dangerDetected(report);
-                }
-            } else if (now - lastTime > m_repeatDangerMs) {
-                state.announced.insert(key, now);
-                emit attentionDetected(report);
+                else
+                    emit attentionDetected(report);
             }
         }
 

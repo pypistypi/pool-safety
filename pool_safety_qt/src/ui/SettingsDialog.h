@@ -116,6 +116,7 @@ private:
     // --- распознавание -----------------------------------------------------
     QComboBox *m_detectorModel = nullptr;
     QSpinBox *m_detectInterval = nullptr;
+    QComboBox *m_fpsCap = nullptr;
     QDoubleSpinBox *m_searchConfidence = nullptr;
     QCheckBox *m_poseEnabled = nullptr;
     QCheckBox *m_autoAlarm = nullptr;

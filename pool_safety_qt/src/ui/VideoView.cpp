@@ -48,7 +48,7 @@ void VideoView::setFrame(const QVideoFrame &frame)
         return;
 
     const qint64 now = m_paceTimer.elapsed();
-    if ((now - m_lastShownMs) < kMinIntervalMs)
+    if ((now - m_lastShownMs) < m_minIntervalMs)
         return;
     m_lastShownMs = now;
 
@@ -140,6 +140,15 @@ void VideoView::setSkeletonsVisible(bool visible)
     if (m_skeletons == visible) return;
     m_skeletons = visible;
     update();
+}
+
+void VideoView::setFpsLimit(int fps)
+{
+    // Отрицательный или нулевой темп не имеет смысла — оставляем прежний
+    // предел, а не встаём в бесконечный показ или в деление на ноль.
+    if (fps <= 0)
+        return;
+    m_minIntervalMs = qMax<qint64>(1, 1000 / fps);
 }
 
 void VideoView::resizeEvent(QResizeEvent *event)

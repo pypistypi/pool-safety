@@ -74,8 +74,9 @@ class SettingsActivity : AppCompatActivity() {
                 }
                 UpdateResult.UpToDate ->
                     binding.updateResult.text = getString(R.string.updates_none)
-                UpdateResult.Failed ->
-                    binding.updateResult.text = getString(R.string.updates_failed)
+                is UpdateResult.Failed ->
+                    binding.updateResult.text =
+                        getString(R.string.updates_failed, result.reason)
             }
         }
     }

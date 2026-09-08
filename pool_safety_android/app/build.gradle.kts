@@ -19,8 +19,8 @@ android {
         // versionCode обязан расти с каждой поставкой: Android не поставит
         // обновление поверх, если номер не увеличился, и заказчик остался бы
         // со старой сборкой, думая, что обновился.
-        versionCode = 6
-        versionName = "1.3.0"
+        versionCode = 7
+        versionName = "1.3.1"
     }
 
     buildTypes {

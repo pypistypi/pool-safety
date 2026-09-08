@@ -53,6 +53,44 @@ std::optional<double> sharedShift(const Sample &previous, const Sample &current)
     return sum / shared;
 }
 
+/// Наибольшая скорость изменения наклона туловища по всей переданной
+/// истории, °/с. Сглажено медианой по трём соседним замерам: без этого
+/// одиночный сбой скелета (модель на кадр путает плечи с бёдрами) выглядит
+/// как мгновенный поворот тела на полсотни градусов, и правило падения
+/// срабатывало на спокойно идущем человеке.
+///
+/// Вынесена отдельной функцией, а не оставлена внутри Track::metrics(),
+/// потому что нужна из двух разных мест: metrics() считает её по КАЖДОМУ
+/// разбору для строки состояния, а Track::add() — один раз, в момент
+/// перехода в горизонталь, чтобы ЗАПОМНИТЬ и не потерять свидетельство
+/// падения, когда сам всплеск позже уйдёт из хранимой истории (см.
+/// Track::fallTiltRate()).
+double maxTiltChange(const std::deque<Sample> &samples)
+{
+    std::vector<std::pair<double, double>> tilts;
+    for (const Sample &sample : samples) {
+        if (sample.features.torsoTilt)
+            tilts.emplace_back(sample.timestamp, *sample.features.torsoTilt);
+    }
+    if (tilts.size() < 4)
+        return 0.0;
+
+    std::vector<std::pair<double, double>> smoothed;
+    smoothed.reserve(tilts.size());
+    for (size_t i = 1; i + 1 < tilts.size(); ++i) {
+        smoothed.emplace_back(tilts[i].first,
+                              median({tilts[i - 1].second, tilts[i].second,
+                                      tilts[i + 1].second}));
+    }
+
+    double change = 0.0;
+    for (size_t i = 1; i < smoothed.size(); ++i) {
+        const double dt = std::max(1e-3, smoothed[i].first - smoothed[i - 1].first);
+        change = std::max(change, std::abs(smoothed[i].second - smoothed[i - 1].second) / dt);
+    }
+    return change;
+}
+
 } // namespace
 
 // ------------------------------------------------------------------ дорожка
@@ -107,7 +145,11 @@ void Track::add(double timestamp, const Pose &pose)
     sample.pose = pose;
     sample.features = extractFeatures(pose);
 
-    if (const Sample *previous = latest()) {
+    const Sample *previous = latest();
+    const bool horizontalNow = sample.features.torsoTilt
+                               && *sample.features.torsoTilt >= 55.0;
+
+    if (previous) {
         updateDurations(timestamp, *previous, sample.features, pose);
     } else {
         // Первый замер: отсчёт всех состояний начинается сейчас.
@@ -116,6 +158,20 @@ void Track::add(double timestamp, const Pose &pose)
 
     m_samples.push_back(std::move(sample));
     m_lastSeen = timestamp;
+
+    // Падение: резкий переход в горизонталь. Пересчитываем резкость на
+    // каждом кадре, пока переход совсем свежий (kFallSettleSeconds) — за
+    // одну сглаживающая медиана в maxTiltChange ещё не отличит настоящий
+    // скачок наклона от единичного сбоя скелета, ей нужно два-три замера
+    // ПОСЛЕ перехода. Как только распознавание устоялось — ЗАМОРАЖИВАЕМ
+    // значение и дальше его не трогаем, пока человек не встанет. См.
+    // Track::fallTiltRate(): без заморозки то же самое свидетельство падения
+    // потерялось бы, стоило самому всплеску уйти из хранимой истории — то
+    // самое исправление пропущенной тревоги.
+    if (!horizontalNow)
+        m_fallTiltRate = 0.0;
+    else if (m_lastSeen - m_horizontalSince <= kFallSettleSeconds)
+        m_fallTiltRate = maxTiltChange(m_samples);
 
     while (!m_samples.empty()
            && timestamp - m_samples.front().timestamp > PersonTracker::kHistorySeconds) {
@@ -255,26 +311,14 @@ WindowMetrics Track::metrics(double window) const
     //
     // Тоже по всей истории: падение могло случиться до начала окна, а человек
     // всё ещё лежит — и это именно та тревога, которую нельзя потерять.
-    std::vector<std::pair<double, double>> tilts;
-    for (const Sample &sample : m_samples) {
-        if (sample.features.torsoTilt)
-            tilts.emplace_back(sample.timestamp, *sample.features.torsoTilt);
-    }
-    if (tilts.size() >= 4) {
-        std::vector<std::pair<double, double>> smoothed;
-        smoothed.reserve(tilts.size());
-        for (size_t i = 1; i + 1 < tilts.size(); ++i) {
-            smoothed.emplace_back(tilts[i].first,
-                                  median({tilts[i - 1].second, tilts[i].second,
-                                          tilts[i + 1].second}));
-        }
-        for (size_t i = 1; i < smoothed.size(); ++i) {
-            const double dt = std::max(1e-3, smoothed[i].first - smoothed[i - 1].first);
-            result.tiltChange = std::max(
-                result.tiltChange,
-                std::abs(smoothed[i].second - smoothed[i - 1].second) / dt);
-        }
-    }
+    //
+    // Это значение — снимок «сейчас», для строки состояния и для отладки.
+    // Правило падения (fall() в SituationRules.cpp) им больше НЕ пользуется —
+    // оно смотрит на Track::fallTiltRate(), запомненную один раз в момент
+    // перехода в горизонталь: иначе через 15 секунд (предел хранимой истории)
+    // сам всплеск уходит из m_samples, это поле обнуляется, и правило гаснет,
+    // хотя человек так и лежит.
+    result.tiltChange = maxTiltChange(m_samples);
 
     // --- видимость --------------------------------------------------------
     int headVisible = 0;

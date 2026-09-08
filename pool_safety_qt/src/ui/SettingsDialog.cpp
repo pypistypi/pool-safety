@@ -437,6 +437,20 @@ QWidget *SettingsDialog::buildDetectionTab()
     generalForm->addRow(QStringLiteral("Разбирать панель не чаще, чем раз в:"),
                         m_detectInterval);
 
+    m_fpsCap = new QComboBox(general);
+    m_fpsCap->addItem(QStringLiteral("24 к/с"), 24);
+    m_fpsCap->addItem(QStringLiteral("30 к/с"), 30);
+    m_fpsCap->addItem(QStringLiteral("60 к/с"), 60);
+    m_fpsCap->setCurrentIndex(m_fpsCap->findData(m_settings.displayFpsCap));
+    if (m_fpsCap->currentIndex() < 0)
+        m_fpsCap->setCurrentIndex(1);   // 30 — умолчание, если в файле чужое число
+    m_fpsCap->setToolTip(QStringLiteral(
+        "Общий предел для всех панелей сразу. IP-камера (в том числе смартфон "
+        "с IP Webcam) не всегда держит ровный темп потока сама по себе — предел "
+        "не добавляет недостающие кадры, а лишь не даёт показу превысить "
+        "выбранный темп."));
+    generalForm->addRow(QStringLiteral("Показывать видео не чаще, чем:"), m_fpsCap);
+
     m_searchConfidence = new QDoubleSpinBox(general);
     m_searchConfidence->setRange(0.15, 0.90);
     m_searchConfidence->setSingleStep(0.05);
@@ -652,6 +666,7 @@ core::Settings SettingsDialog::settings() const
     result.blinkOnAlarm = m_blink->isChecked();
 
     result.detectIntervalMs = m_detectInterval->value();
+    result.displayFpsCap = m_fpsCap->currentData().toInt();
     result.selfLearning = m_selfLearning->isChecked();
     result.searchConfidence = m_searchConfidence->value();
     result.poseEnabled = m_poseEnabled->isChecked();
