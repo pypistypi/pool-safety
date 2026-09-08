@@ -499,6 +499,14 @@ void NetworkSource::stop()
         m_watchdog = nullptr;
     }
     if (m_mjpegThread.isRunning()) {
+        // Сначала просим сам объект прибраться (оборвать сетевой запрос,
+        // выставить флаг «остановлен»), и только потом гасим поток. Без
+        // этого quit() лишь просит цикл событий выйти — незавершённый
+        // QNetworkReply и таймер повторного запроса снимка (для камер без
+        // multipart-потока, см. MjpegWorker::processSingleShot) успевали бы
+        // сработать ещё раз в промежутке между quit() и настоящей остановкой.
+        if (m_mjpegWorker)
+            QMetaObject::invokeMethod(m_mjpegWorker, "stop", Qt::BlockingQueuedConnection);
         m_mjpegThread.quit();
         m_mjpegThread.wait(2000);
         m_mjpegWorker = nullptr;   // уже удалён через deleteLater при finished()

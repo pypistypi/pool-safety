@@ -386,6 +386,40 @@ void IpCameraDialog::testConnection()
     m_testResult->setText(QStringLiteral("Подключение…"));
     m_testResult->setStyleSheet(QStringLiteral("color: #939fb0;"));
 
+    m_testTimeout = new QTimer(this);
+    m_testTimeout->setSingleShot(true);
+    m_testTimeout->setInterval(kTestTimeoutMs);
+    connect(m_testTimeout, &QTimer::timeout, this, [this] {
+        stopTest(QStringLiteral(
+                     "Кадр не пришёл за %1 секунд. Проверьте протокол, путь потока, "
+                     "имя пользователя и пароль.").arg(kTestTimeoutMs / 1000), false);
+    });
+    m_testTimeout->start();
+
+    const QUrl url(descriptor.target());
+    const bool useMjpeg = url.scheme().compare(QLatin1String("http"), Qt::CaseInsensitive) == 0
+                       || url.scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) == 0;
+
+    if (useMjpeg) {
+        // Тот же приёмник, что и у настоящего подключения (NetworkSource) —
+        // иначе камера, которая заработает после «Подключить» (голый поток
+        // без Content-Length, снимок вместо потока, пароль в адресе), могла
+        // бы не пройти эту проверку через QMediaPlayer/FFmpeg и напугать
+        // оператора отказом там, где на самом деле всё в порядке.
+        m_mjpegTest = new core::MjpegWorker(this);
+        connect(m_mjpegTest, &core::MjpegWorker::frameReady, this,
+                [this](const QImage &image) {
+                    stopTest(QStringLiteral("Связь есть: кадр %1×%2 получен.")
+                                 .arg(image.width()).arg(image.height()), true);
+                });
+        connect(m_mjpegTest, &core::MjpegWorker::streamError, this,
+                [this](const QString &reason) {
+                    stopTest(QStringLiteral("Не удалось: %1").arg(reason), false);
+                });
+        m_mjpegTest->start(url);
+        return;
+    }
+
     m_player = new QMediaPlayer(this);
     m_sink = new QVideoSink(this);
     m_player->setVideoSink(m_sink);
@@ -407,17 +441,7 @@ void IpCameraDialog::testConnection()
                                                    : description), false);
             });
 
-    m_testTimeout = new QTimer(this);
-    m_testTimeout->setSingleShot(true);
-    m_testTimeout->setInterval(kTestTimeoutMs);
-    connect(m_testTimeout, &QTimer::timeout, this, [this] {
-        stopTest(QStringLiteral(
-                     "Кадр не пришёл за %1 секунд. Проверьте протокол, путь потока, "
-                     "имя пользователя и пароль.").arg(kTestTimeoutMs / 1000), false);
-    });
-    m_testTimeout->start();
-
-    m_player->setSource(QUrl(descriptor.target()));
+    m_player->setSource(url);
     m_player->play();
 }
 
@@ -433,6 +457,11 @@ void IpCameraDialog::stopTest(const QString &message, bool success)
         m_player->deleteLater();
         m_player = nullptr;
         m_sink = nullptr;
+    }
+    if (m_mjpegTest) {
+        m_mjpegTest->stop();
+        m_mjpegTest->deleteLater();
+        m_mjpegTest = nullptr;
     }
 
     if (m_test)

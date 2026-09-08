@@ -153,6 +153,9 @@ private slots:
     void mjpegSkipsStaleFramesUnderBacklog();
     void mjpegRecoversFromGarbageBeforeHeader();
     void mjpegAcceptsLowercaseHeader();
+    void mjpegReadsRawJpegWithoutAnyHeaders();
+    void mjpegSkipsStaleRawFramesUnderBacklog();
+    void mjpegWaitsForIncompleteRawFrame();
 
     // --- темп разбора -------------------------------------------------------
     void verdictSurvivesBetweenPoseRuns();
@@ -2057,6 +2060,51 @@ void CoreTests::mjpegAcceptsLowercaseHeader()
     const QByteArray frame = core::MjpegWorker::extractLatestFrame(buffer);
 
     QCOMPARE(frame, QByteArrayLiteral("HELLO"));
+}
+
+void CoreTests::mjpegReadsRawJpegWithoutAnyHeaders()
+{
+    // Часть недорогих и самодельных камер (ESP32-CAM и подобные) не умеет
+    // multipart вовсе — просто шлёт один JPEG за другим, без Content-Length,
+    // без границы (boundary), без заголовков. Разбор обязан справиться и с
+    // этим — по одним лишь маркерам JPEG (SOI FF D8 / EOI FF D9).
+    QByteArray buffer = QByteArrayLiteral("\xFF\xD8") + QByteArrayLiteral("кадр") + QByteArrayLiteral("\xFF\xD9");
+
+    const QByteArray frame = core::MjpegWorker::extractLatestFrame(buffer);
+
+    QCOMPARE(frame, QByteArrayLiteral("\xFF\xD8кадр\xFF\xD9"));
+    QVERIFY2(buffer.isEmpty(), "разобранный кадр должен уйти из буфера");
+}
+
+void CoreTests::mjpegSkipsStaleRawFramesUnderBacklog()
+{
+    // Тот же смысл, что и у mjpegSkipsStaleFramesUnderBacklog, но для камеры
+    // без заголовков вовсе: сеть прислала три кадра быстрее, чем мы успели
+    // разобрать, — разобрать нужно все три, а вернуть только последний.
+    const auto raw = [](const QByteArray &body) {
+        return QByteArrayLiteral("\xFF\xD8") + body + QByteArrayLiteral("\xFF\xD9");
+    };
+    QByteArray buffer = raw(QByteArrayLiteral("старый"))
+                      + raw(QByteArrayLiteral("средний"))
+                      + raw(QByteArrayLiteral("свежий"));
+
+    const QByteArray frame = core::MjpegWorker::extractLatestFrame(buffer);
+
+    QCOMPARE(frame, raw(QByteArrayLiteral("свежий")));
+    QVERIFY2(buffer.isEmpty(), "все три кадра должны быть разобраны и убраны из буфера");
+}
+
+void CoreTests::mjpegWaitsForIncompleteRawFrame()
+{
+    // Есть начало кадра (SOI), а конца (EOI) ещё нет — сеть недодала хвост.
+    // Буфер трогать нельзя: следующий readyRead() довезёт остаток.
+    QByteArray buffer = QByteArrayLiteral("\xFF\xD8") + QByteArrayLiteral("недописанный кадр");
+    const QByteArray original = buffer;
+
+    const QByteArray frame = core::MjpegWorker::extractLatestFrame(buffer);
+
+    QVERIFY2(frame.isEmpty(), "неполный кадр без EOI не должен считаться готовым");
+    QCOMPARE(buffer, original);
 }
 
 QTEST_MAIN(CoreTests)
