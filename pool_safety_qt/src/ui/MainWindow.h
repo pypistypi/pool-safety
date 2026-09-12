@@ -160,7 +160,6 @@ private:
     QLabel *m_detectorLabel = nullptr;
     QLabel *m_notice = nullptr;
     QPushButton *m_alarmButton = nullptr;
-    QAction *m_skeletonAction = nullptr;
     QTimer *m_tick = nullptr;
     QTimer *m_blink = nullptr;
     QSystemTrayIcon *m_tray = nullptr;

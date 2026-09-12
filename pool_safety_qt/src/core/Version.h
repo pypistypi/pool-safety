@@ -25,9 +25,9 @@
 // ---------------------------------------------------------------------------
 
 #define POOL_SAFETY_VERSION_MAJOR 1
-#define POOL_SAFETY_VERSION_MINOR 5
+#define POOL_SAFETY_VERSION_MINOR 6
 #define POOL_SAFETY_VERSION_PATCH 0
-#define POOL_SAFETY_VERSION_STR   "1.5.0"
+#define POOL_SAFETY_VERSION_STR   "1.6.0"
 
 #ifndef RC_INVOKED
 

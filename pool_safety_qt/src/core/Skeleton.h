@@ -46,19 +46,6 @@ inline constexpr std::array<int, 4> lowerBody = {LeftKnee, RightKnee, LeftAnkle,
 
 inline constexpr std::array<int, 4> torso = {LeftShoulder, RightShoulder, LeftHip, RightHip};
 
-/// Связи для отрисовки скелета.
-inline constexpr std::array<std::array<int, 2>, 18> limbs = {{
-    {LeftShoulder, RightShoulder}, {LeftShoulder, LeftHip},
-    {RightShoulder, RightHip},     {LeftHip, RightHip},
-    {LeftShoulder, LeftElbow},     {LeftElbow, LeftWrist},
-    {RightShoulder, RightElbow},   {RightElbow, RightWrist},
-    {LeftHip, LeftKnee},           {LeftKnee, LeftAnkle},
-    {RightHip, RightKnee},         {RightKnee, RightAnkle},
-    {Nose, LeftEye},               {Nose, RightEye},
-    {LeftEye, LeftEar},            {RightEye, RightEar},
-    {LeftEar, LeftShoulder},       {RightEar, RightShoulder},
-}};
-
 } // namespace kp
 
 /// Поза одного человека на одном кадре, в координатах ИСХОДНОГО кадра.

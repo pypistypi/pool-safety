@@ -91,6 +91,7 @@ private:
     QCheckBox *m_ruleFall = nullptr;
     QCheckBox *m_ruleChild = nullptr;
     QCheckBox *m_ruleUnsteady = nullptr;
+    QCheckBox *m_ruleSplashing = nullptr;
 
     // --- объект ------------------------------------------------------------
     QLineEdit *m_objectName = nullptr;
@@ -133,6 +134,8 @@ private:
     QDoubleSpinBox *m_uprightAttention = nullptr;
     QDoubleSpinBox *m_uprightAlarm = nullptr;
     QDoubleSpinBox *m_fallStayAlarm = nullptr;
+    QDoubleSpinBox *m_splashingAlarm = nullptr;
+    QCheckBox *m_splashingAlarmAllowed = nullptr;
     QDoubleSpinBox *m_childHeadToTorso = nullptr;
     QCheckBox *m_childAlarm = nullptr;
 };

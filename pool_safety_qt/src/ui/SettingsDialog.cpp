@@ -156,6 +156,11 @@ QWidget *SettingsDialog::buildReactionsTab()
          m_settings.thresholds.ruleUnsteady,
          QStringLiteral("только подозрение, никогда не тревога; по видео "
                         "опьянение установить нельзя")},
+        {&m_ruleSplashing, QStringLiteral("Резкие движения и брызги на месте"),
+         m_settings.thresholds.ruleSplashing,
+         QStringLiteral("ранняя стадия беды в воде по Ф. Пиа — энергично, но "
+                        "без продвижения; от игры у бортика по одной позе не "
+                        "отличить, тревогу не поднимает, пока не откалибровано")},
     };
 
     for (const Row &row : rows) {
@@ -589,6 +594,21 @@ QWidget *SettingsDialog::buildDetectionTab()
     m_fallStayAlarm = addSeconds(
         QStringLiteral("Упал и не встаёт — ТРЕВОГА через:"),
         m_settings.thresholds.fallStayAlarm, 60.0);
+    m_splashingAlarm = addSeconds(
+        QStringLiteral("Брызги и резкие движения на месте — ТРЕВОГА через:"),
+        m_settings.thresholds.splashingAlarm, 60.0);
+
+    m_splashingAlarmAllowed = new QCheckBox(
+        QStringLiteral("Разрешить тревогу по признаку «резкие движения на месте»"),
+        rules);
+    m_splashingAlarmAllowed->setChecked(m_settings.thresholds.splashingAlarmAllowed);
+    m_splashingAlarmAllowed->setToolTip(QStringLiteral(
+        "Выключено намеренно. Энергичная возня у бортика («брызгалки», «кто "
+        "кого утопит») и настоящее водное бедствие дают одну и ту же позу — "
+        "по геометрии их не отличить, нужен контекст. Пока выключено, правило "
+        "подсвечивает панель и пишет в журнал, но сирену не включает. "
+        "Включайте после проверки на объекте."));
+    rulesForm->addRow(m_splashingAlarmAllowed);
 
     m_childHeadToTorso = new QDoubleSpinBox(rules);
     m_childHeadToTorso->setRange(0.20, 0.80);
@@ -681,6 +701,7 @@ core::Settings SettingsDialog::settings() const
     result.thresholds.ruleFall = m_ruleFall->isChecked();
     result.thresholds.ruleChildAlone = m_ruleChild->isChecked();
     result.thresholds.ruleUnsteady = m_ruleUnsteady->isChecked();
+    result.thresholds.ruleSplashing = m_ruleSplashing->isChecked();
 
     result.panelHasWater.clear();
     for (QCheckBox *box : m_water)
@@ -692,6 +713,8 @@ core::Settings SettingsDialog::settings() const
     result.thresholds.drowningUprightAttention = m_uprightAttention->value();
     result.thresholds.drowningUprightAlarm = m_uprightAlarm->value();
     result.thresholds.fallStayAlarm = m_fallStayAlarm->value();
+    result.thresholds.splashingAlarm = m_splashingAlarm->value();
+    result.thresholds.splashingAlarmAllowed = m_splashingAlarmAllowed->isChecked();
     result.thresholds.childHeadToTorso = m_childHeadToTorso->value();
     result.thresholds.childAlarmAllowed = m_childAlarm->isChecked();
 

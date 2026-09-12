@@ -332,11 +332,6 @@ void CameraPanel::setBlinkPhase(bool bright)
     m_view->setBlinkPhase(bright);
 }
 
-void CameraPanel::setSkeletonsVisible(bool visible)
-{
-    m_view->setSkeletonsVisible(visible);
-}
-
 void CameraPanel::setFpsLimit(int fps)
 {
     m_view->setFpsLimit(fps);

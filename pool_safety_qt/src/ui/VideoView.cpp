@@ -135,13 +135,6 @@ void VideoView::setBlinkPhase(bool bright)
         update();
 }
 
-void VideoView::setSkeletonsVisible(bool visible)
-{
-    if (m_skeletons == visible) return;
-    m_skeletons = visible;
-    update();
-}
-
 void VideoView::setFpsLimit(int fps)
 {
     // Отрицательный или нулевой темп не имеет смысла — оставляем прежний
@@ -237,42 +230,6 @@ void VideoView::drawPeople(QPainter &painter)
     for (const core::PersonView &person : std::as_const(m_analysis.people)) {
         const QColor color = levelColor(person.level);
         const QRect placed = placeBox(person.box, scaleX, scaleY);
-
-        // --- скелет -------------------------------------------------------
-        //
-        // Рисуется бледнее рамки: он поясняет, ПОЧЕМУ система решила так, а не
-        // притягивает взгляд. Внимание должно доставаться рамке и подписи.
-        if (m_skeletons && person.points.size() == core::kp::Count) {
-            painter.setRenderHint(QPainter::Antialiasing, true);
-            QColor limbColor = color;
-            limbColor.setAlpha(170);
-            QPen limbPen(limbColor);
-            limbPen.setWidth(2);
-            painter.setPen(limbPen);
-
-            auto place = [&](int index) {
-                const QPointF &point = person.points.at(index);
-                return QPointF(m_target.x() + point.x() * scaleX,
-                               m_target.y() + point.y() * scaleY);
-            };
-            auto visible = [&](int index) {
-                return person.scores.value(index, 0.f) >= 0.35f;
-            };
-
-            for (const auto &limb : core::kp::limbs) {
-                if (!visible(limb[0]) || !visible(limb[1]))
-                    continue;
-                painter.drawLine(place(limb[0]), place(limb[1]));
-            }
-
-            painter.setBrush(color);
-            painter.setPen(Qt::NoPen);
-            for (int index = 0; index < core::kp::Count; ++index) {
-                if (!visible(index))
-                    continue;
-                painter.drawEllipse(place(index), 2.5, 2.5);
-            }
-        }
 
         // --- рамка --------------------------------------------------------
         painter.setRenderHint(QPainter::Antialiasing, false);

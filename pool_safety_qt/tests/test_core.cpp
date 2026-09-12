@@ -98,6 +98,7 @@ private slots:
     // --- опасные положения: что ОБЯЗАНО сработать -------------------------
     void lyingStillInWaterRaisesAlarm();
     void motionlessInWaterRaisesAlarm();
+    void splashingInPlaceRaisesAttentionButNotAlarmByDefault();
 
     // --- спорные случаи ----------------------------------------------------
     void sunbatherOnLoungerIsNotAnAlarm();
@@ -114,6 +115,7 @@ private slots:
     void closeUpAdultIsNotMistakenForChild();
     void childRuleNeverRaisesAlarmUntilCalibrated();
     void distantAdultIsNotMistakenForChild();
+    void swimmerAlongTrajectoryIsNotSplashing();
 
     // --- защита от прежних ошибок -----------------------------------------
     void durationsUseFullHistoryNotWindow();
@@ -795,6 +797,47 @@ void CoreTests::motionlessInWaterRaisesAlarm()
     // столом человек получал тревогу.
     QCOMPARE(verdictFor(analyseTrack(track, false), core::Situation::Drowning).level,
              core::Level::Normal);
+
+    // Тот же неподвижный вис — руки не двигаются — не должен читаться как
+    // барахтанье: это разные признаки одной и той же поздней стадии беды,
+    // а не два взгляда на одно и то же движение.
+    QCOMPARE(verdictFor(analyseTrack(track, true), core::Situation::Splashing).level,
+             core::Level::Normal);
+}
+
+void CoreTests::splashingInPlaceRaisesAttentionButNotAlarmByDefault()
+{
+    // РАННЯЯ СТАДИЯ БЕДЫ ПО Ф. ПИА («водное бедствие»): человек барахтается
+    // энергично, но остаётся на месте — в отличие от «завис без движения»
+    // (та же беда, но человек уже застыл), здесь картина ровно обратная.
+    core::Track track(1, 0.0);
+    bool swingRight = true;
+    for (double time = 0.0; time <= 14.0; time += 0.4) {
+        core::Pose pose = makePose(QPointF(600, 400), 100, 85, false);   // в воде, ног не видно
+        const double offset = swingRight ? 45.0 : -45.0;
+        pose.points[core::kp::LeftWrist]  += QPointF(offset, 0.0);
+        pose.points[core::kp::RightWrist] += QPointF(-offset, 0.0);
+        swingRight = !swingRight;
+        track.add(time, pose);
+    }
+
+    const core::Verdict quiet =
+        verdictFor(analyseTrack(track, true), core::Situation::Splashing);
+    QVERIFY2(quiet.level != core::Level::Normal, "энергичные брызги на месте не замечены");
+    // Признак не отличает беду от игры — см. пояснение у Thresholds::
+    // splashingAlarmAllowed. По умолчанию тревога придержана до «внимания»,
+    // сколько бы ни длилось барахтанье.
+    QCOMPARE(quiet.level, core::Level::Attention);
+    QVERIFY(quiet.reasons.join(QLatin1Char(' ')).contains(QStringLiteral("энергично")));
+
+    // После проверки на объекте — включается и работает как тревога.
+    core::Thresholds calibrated;
+    calibrated.splashingAlarmAllowed = true;
+    core::SituationAnalyzer analyzer;
+    analyzer.setThresholds(calibrated);
+    const core::Verdict loud =
+        verdictFor(analyzer.analyse(track, {&track}, true), core::Situation::Splashing);
+    QCOMPARE(loud.level, core::Level::Alarm);
 }
 
 // ---------------------------------------- что обязано НЕ поднять тревогу
@@ -825,6 +868,28 @@ void CoreTests::swimmerIsNotDrowning()
     const QVector<core::Verdict> verdicts = analyseTrack(track, true);
     QCOMPARE(verdictFor(verdicts, core::Situation::Drowning).level, core::Level::Normal);
     QCOMPARE(verdictFor(verdicts, core::Situation::Unconscious).level, core::Level::Normal);
+}
+
+void CoreTests::swimmerAlongTrajectoryIsNotSplashing()
+{
+    // ТРЕБОВАНИЕ ЗАКАЗЧИКА, ПРОВЕРЕННОЕ НАПРЯМУЮ: пловец, энергично гребущий
+    // руками, не должен читаться как барахтающийся в беде — отличает их
+    // именно продвижение вдоль дорожки, а не сама по себе активность рук.
+    core::Track track(1, 0.0);
+    double x = 200.0;
+    bool swingRight = true;
+    for (double time = 0.0; time <= 10.0; time += 0.4) {
+        core::Pose pose = makePose(QPointF(x, 400), 100, 85, false);
+        const double offset = swingRight ? 45.0 : -45.0;
+        pose.points[core::kp::LeftWrist]  += QPointF(offset, 0.0);
+        pose.points[core::kp::RightWrist] += QPointF(-offset, 0.0);
+        swingRight = !swingRight;
+        track.add(time, pose);
+        x += 50.0;   // быстро продвигается — гребок толкает тело вперёд
+    }
+
+    QCOMPARE(verdictFor(analyseTrack(track, true), core::Situation::Splashing).level,
+             core::Level::Normal);
 }
 
 void CoreTests::playingInWaterIsNotDrowning()

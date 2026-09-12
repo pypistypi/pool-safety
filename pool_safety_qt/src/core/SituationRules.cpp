@@ -119,6 +119,90 @@ Verdict drowning(const Track &track, const WindowMetrics &metrics, const Thresho
 }
 
 // ---------------------------------------------------------------------------
+//  Брызги и резкие движения на месте
+// ---------------------------------------------------------------------------
+//
+//  НАУЧНОЕ ОБОСНОВАНИЕ. Согласно исследованию Ф. Пиа «Инстинктивная реакция
+//  на утопление» (Instinctive Drowning Response, Francesco A. Pia, 1974) и
+//  принятой в спасательном деле модели поведения тонущего, беда в воде
+//  проходит различимые стадии:
+//
+//    1. «Водное бедствие» (aquatic distress), до минуты: человек ещё
+//       способен на произвольные движения — барахтается, бьёт руками по
+//       воде, может слабо звать на помощь, — но продвижения нет: усталость,
+//       судорога или течение удерживают его на месте.
+//    2. Собственно инстинктивная реакция, 20–60 секунд: человек замолкает,
+//       руки непроизвольно прижимаются к воде по бокам (как при попытке
+//       оттолкнуться и приподняться), тело вертикально, ног не видно,
+//       продвижения по-прежнему нет.
+//    3. Погружение.
+//
+//  Стадию 2 уже ловит правило «завис в воде» (drowning() выше): там человек
+//  ЗАСТЫВАЕТ, а не двигается. Это правило ловит стадию 1 — ту, что «завис в
+//  воде» принципиально не видит: там человек, наоборот, активно, но
+//  безрезультатно двигается, и по одной лишь неподвижности его не найти.
+//
+//  ОТЛИЧИЕ ОТ ПЛОВЦА — ТРЕБОВАНИЕ ЗАКАЗЧИКА, И ОНО ЖЕ ОТЛИЧИЕ ИЗ ЛИТЕРАТУРЫ.
+//  Пловец, гребущий кролем или брассом, тоже энергично двигает руками — но
+//  ПРОДВИГАЕТСЯ вдоль дорожки. Барахтающийся в беде остаётся на месте: силы
+//  уходят на борьбу с погружением, а не на перемещение. Ровно поэтому мерой
+//  служит не сама по себе активность рук (metrics.armActivity — то же
+//  измерение, что и «затухающие движения» в drowning(), только здесь ищется
+//  ЭНЕРГИЧНАЯ, а не слабая полоса), а её СОЧЕТАНИЕ с отсутствием сноса от
+//  точки, где барахтанье началось — см. Track::splashingSeconds().
+//
+//  ОТЛИЧИЕ ОТ ИГРЫ ПОКА НЕ УСТАНОВЛЕНО. Дети, играющие в «брызгалки» или
+//  «кто кого утопит» у бортика, дают ту же самую геометрию: резкие движения,
+//  всплески, отсутствие продвижения. Отличить игру от беды по одной лишь
+//  позе нельзя — нужен контекст (смех, попеременная инициатива, короткие
+//  эпизоды), которого система не видит. Поэтому по умолчанию правило не
+//  имеет права на сирену — см. Thresholds::splashingAlarmAllowed.
+Verdict splashing(const Track &track, const WindowMetrics &metrics, const Thresholds &t,
+                  bool waterInView)
+{
+    Verdict verdict;
+    verdict.situation = Situation::Splashing;
+
+    const Sample *latest = track.latest();
+    const bool inWater = waterInView && latest && latest->features.lowerBodyRatio <= 0.25;
+    if (!inWater)
+        return verdict;
+
+    const double held = track.splashingSeconds();
+    if (held < 1.0)
+        return verdict;
+
+    verdict.heldSeconds = held;
+    verdict.reasons << QStringLiteral("резкие движения на месте, ног не видно — %1 с")
+                           .arg(seconds(held));
+
+    if (metrics.armActivity) {
+        verdict.reasons << QStringLiteral("кисти двигаются энергично (%1 длины тела/с)")
+                               .arg(*metrics.armActivity, 0, 'f', 2);
+    }
+
+    if (held >= t.splashingAlarm) {
+        verdict.level = Level::Alarm;
+        verdict.reasons << QStringLiteral(
+            "долго барахтается на месте без продвижения — похоже на водное бедствие");
+    } else if (held >= t.splashingAttention) {
+        verdict.level = Level::Attention;
+    }
+
+    // Признак не проверен на настоящем случае и не отличает беду от игры —
+    // см. пояснение выше. Пока запрещено, «тревога» глушится до «внимания».
+    if (!t.splashingAlarmAllowed && verdict.level == Level::Alarm) {
+        verdict.level = Level::Attention;
+        verdict.reasons << QStringLiteral(
+            "тревога по этому признаку выключена: не отличить от игры без проверки на объекте");
+    }
+
+    if (verdict.level == Level::Normal)
+        verdict.reasons.clear();
+    return verdict;
+}
+
+// ---------------------------------------------------------------------------
 //  Лежит без движения
 // ---------------------------------------------------------------------------
 //
@@ -444,6 +528,7 @@ QString situationText(Situation situation)
     case Situation::Fall:        return QStringLiteral("упал и не встаёт");
     case Situation::ChildAlone:  return QStringLiteral("ребёнок без присмотра");
     case Situation::Unsteady:    return QStringLiteral("неуверенная походка");
+    case Situation::Splashing:   return QStringLiteral("резкие движения и брызги на месте");
     }
     return QStringLiteral("неизвестное положение");
 }
@@ -464,6 +549,9 @@ QString situationAction(Situation situation)
     case Situation::Unsteady:
         return QStringLiteral("Присмотритесь: рядом с водой такому человеку "
                               "нужно внимание.");
+    case Situation::Splashing:
+        return QStringLiteral("Посмотрите на панель немедленно: отличите игру "
+                              "от беды на месте, и если это не игра — доставать из воды.");
     }
     return QString();
 }
@@ -476,6 +564,7 @@ QString situationAlert(Situation situation)
     case Situation::Fall:        return QStringLiteral("Человек упал и не встаёт");
     case Situation::ChildAlone:  return QStringLiteral("Ребёнок один у воды");
     case Situation::Unsteady:    return QStringLiteral("Шаткая походка у воды");
+    case Situation::Splashing:   return QStringLiteral("Резкие движения и брызги на месте в воде");
     }
     return QStringLiteral("Опасное положение в зоне бассейна");
 }
@@ -508,6 +597,7 @@ QVector<Verdict> SituationAnalyzer::analyse(const Track &track,
         fall(track, metrics, m_thresholds),
         childAlone(track, m_thresholds, others, waterInView),
         unsteady(track, metrics, m_thresholds),
+        splashing(track, metrics, m_thresholds, waterInView),
     };
 
     for (const Verdict &verdict : all) {

@@ -83,6 +83,7 @@ Settings Settings::load(const QString &path)
     rules.ruleFall        = flag(reactions, "упал_и_не_встаёт", rules.ruleFall);
     rules.ruleChildAlone  = flag(reactions, "ребёнок_без_присмотра", rules.ruleChildAlone);
     rules.ruleUnsteady    = flag(reactions, "неуверенная_походка", rules.ruleUnsteady);
+    rules.ruleSplashing   = flag(reactions, "брызги_на_месте", rules.ruleSplashing);
 
     const QJsonObject sound = root.value(QStringLiteral("звук")).toObject();
     settings.soundEnabled       = flag(sound, "включён", settings.soundEnabled);
@@ -177,6 +178,10 @@ Settings Settings::load(const QString &path)
     th.childAloneAlarm          = number(t, "ребёнок_один_тревога_с", th.childAloneAlarm);
     th.childAlarmAllowed        = flag(t, "ребёнок_разрешить_тревогу",
                                        th.childAlarmAllowed);
+    th.splashingAttention       = number(t, "брызги_внимание_с", th.splashingAttention);
+    th.splashingAlarm           = number(t, "брызги_тревога_с", th.splashingAlarm);
+    th.splashingAlarmAllowed    = flag(t, "брызги_разрешить_тревогу",
+                                       th.splashingAlarmAllowed);
     th.window                   = number(t, "окно_разбора_с", th.window);
 
     // ФАЙЛ ЗАПИСЫВАЕТСЯ СРАЗУ, ЕСЛИ ЧТО-ТО ПЕРЕВЕДЕНО. Иначе перевод живёт
@@ -204,6 +209,7 @@ bool Settings::save(const QString &path) const
     reactions.insert(QStringLiteral("упал_и_не_встаёт"), thresholds.ruleFall);
     reactions.insert(QStringLiteral("ребёнок_без_присмотра"), thresholds.ruleChildAlone);
     reactions.insert(QStringLiteral("неуверенная_походка"), thresholds.ruleUnsteady);
+    reactions.insert(QStringLiteral("брызги_на_месте"), thresholds.ruleSplashing);
 
     QJsonObject sound;
     sound.insert(QStringLiteral("включён"), soundEnabled);
@@ -248,6 +254,9 @@ bool Settings::save(const QString &path) const
              thresholds.childMinTorsoToShoulders);
     t.insert(QStringLiteral("ребёнок_один_тревога_с"), thresholds.childAloneAlarm);
     t.insert(QStringLiteral("ребёнок_разрешить_тревогу"), thresholds.childAlarmAllowed);
+    t.insert(QStringLiteral("брызги_внимание_с"), thresholds.splashingAttention);
+    t.insert(QStringLiteral("брызги_тревога_с"), thresholds.splashingAlarm);
+    t.insert(QStringLiteral("брызги_разрешить_тревогу"), thresholds.splashingAlarmAllowed);
     t.insert(QStringLiteral("окно_разбора_с"), thresholds.window);
 
     QJsonArray water;

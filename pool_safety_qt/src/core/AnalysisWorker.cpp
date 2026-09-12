@@ -367,12 +367,6 @@ void AnalysisWorker::runSituations(int panelId, PanelState &state, PanelAnalysis
         PersonView person;
         person.trackId = trackId;
         person.box = latest->pose.box;
-        person.points.reserve(kp::Count);
-        person.scores.reserve(kp::Count);
-        for (int i = 0; i < kp::Count; ++i) {
-            person.points.append(latest->pose.points[size_t(i)]);
-            person.scores.append(latest->pose.scores[size_t(i)]);
-        }
 
         const QVector<Verdict> verdicts =
             m_analyzer.analyse(*track, tracks, m_water.value(panelId, false));

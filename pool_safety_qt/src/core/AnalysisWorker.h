@@ -124,8 +124,8 @@ public slots:
     void setPanelHasWater(int panelId, bool hasWater);
 
 signals:
-    /// Итог одного разбора: рамки, скелеты, счётчик и уровень опасности —
-    /// одним состоянием кадра.
+    /// Итог одного разбора: рамки, счётчик и уровень опасности — одним
+    /// состоянием кадра.
     void panelAnalysed(const core::PanelAnalysis &result);
 
     /// СИГНАЛ 1 — число людей на панели изменилось.

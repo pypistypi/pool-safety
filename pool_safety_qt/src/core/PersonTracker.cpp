@@ -53,6 +53,26 @@ std::optional<double> sharedShift(const Sample &previous, const Sample &current)
     return sum / shared;
 }
 
+/// Среднее смещение видимых в обоих замерах кистей, в точках экрана. Пусто —
+/// ни одна кисть не видна в обоих замерах сразу. Та же мера, что уже
+/// используется в Track::metrics() для armActivity, но для одной пары
+/// замеров — нужна отдельно, чтобы отследить, с какого момента человек
+/// начал энергично двигать руками (см. Track::splashingSeconds()).
+std::optional<double> wristShift(const Sample &previous, const Sample &current)
+{
+    double sum = 0.0;
+    int shared = 0;
+    for (int index : {kp::LeftWrist, kp::RightWrist}) {
+        if (!previous.pose.visible(index) || !current.pose.visible(index))
+            continue;
+        sum += vectorLength(current.pose.point(index) - previous.pose.point(index));
+        ++shared;
+    }
+    if (shared == 0)
+        return std::nullopt;
+    return sum / shared;
+}
+
 /// Наибольшая скорость изменения наклона туловища по всей переданной
 /// истории, °/с. Сглажено медианой по трём соседним замерам: без этого
 /// одиночный сбой скелета (модель на кадр путает плечи с бёдрами) выглядит
@@ -122,6 +142,40 @@ void Track::updateDurations(double timestamp, const Sample &previous,
                            && features.lowerBodyRatio <= 0.25;
     if (!submerged)
         m_submergedSince = timestamp;
+
+    // Брызги на месте: кисти двигаются энергично, а центр тела остаётся у
+    // точки, где отсчёт начался. Якорь переносится в текущую точку, а отсчёт
+    // начинается заново, когда условие рвётся — либо руки успокоились, либо
+    // человек в самом деле сместился (значит, плывёт, а не барахтается). См.
+    // Track::splashingSeconds() и Situation::Splashing в SituationRules.h.
+    bool energetic = false;
+    if (dt > 1e-3) {
+        const double scale = features.torsoLength.value_or(
+            previous.features.torsoLength.value_or(0.0));
+        const std::optional<double> wrists = wristShift(previous, {timestamp, features, pose});
+        if (scale > 1e-6 && wrists)
+            energetic = (*wrists / scale / dt) >= kSplashActivitySpeed;
+    }
+
+    if (!features.center) {
+        // Центр не измерен — снести отсчёт нельзя проверить, поэтому не
+        // рискуем и гасим его: считать «на месте» без доказательства нечестно.
+        m_splashSince = timestamp;
+    } else if (!energetic) {
+        m_splashAnchor = *features.center;
+        m_splashSince = timestamp;
+    } else {
+        const double scale = features.torsoLength.value_or(1.0);
+        const double drift = scale > 1e-6
+            ? vectorLength(*features.center - m_splashAnchor) / scale
+            : 0.0;
+        if (drift > kSplashDriftLimit) {
+            m_splashAnchor = *features.center;
+            m_splashSince = timestamp;
+        }
+        // Иначе — энергично и всё ещё у якоря: отсчёт не трогаем, он идёт
+        // с момента, когда условие стало верным в последний раз подряд.
+    }
 }
 
 void Track::add(double timestamp, const Pose &pose)
@@ -153,7 +207,9 @@ void Track::add(double timestamp, const Pose &pose)
         updateDurations(timestamp, *previous, sample.features, pose);
     } else {
         // Первый замер: отсчёт всех состояний начинается сейчас.
-        m_stillSince = m_horizontalSince = m_submergedSince = timestamp;
+        m_stillSince = m_horizontalSince = m_submergedSince = m_splashSince = timestamp;
+        if (sample.features.center)
+            m_splashAnchor = *sample.features.center;
     }
 
     m_samples.push_back(std::move(sample));
