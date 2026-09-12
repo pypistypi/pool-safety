@@ -16,8 +16,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
-import java.io.ByteArrayOutputStream
-import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.coroutines.coroutineContext
@@ -38,6 +36,24 @@ import kotlin.coroutines.coroutineContext
 //  ЭТО ЗАПАСНОЙ ПУТЬ. Основной — RTSP: он втрое легче для сети. Здесь каждый
 //  кадр — целая картинка, сжатая сама по себе, поэтому по сети идёт заметно
 //  больше данных, сколько бы кадров мы ни отбросили при показе.
+//
+//  ЧТЕНИЕ ПАКЕТАМИ, А НЕ ПО БАЙТУ — то же исправление, что уже сделано для
+//  программы поста (core::MjpegWorker на стороне ПК), перенесённое сюда.
+//  Раньше кадр вычитывался из потока по одному байту (stream.read() в цикле):
+//  для кадра 720p в сто с лишним килобайт это сотня тысяч вызовов чтения на
+//  каждый кадр, тридцать раз в секунду — и именно это, а не разжатие
+//  картинки, было главной тратой на слабом телефоне. Хуже того: побайтовое
+//  чтение шло для КАЖДОГО кадра из сети, даже для тех, что тут же
+//  отбрасывались по частоте показа — отбор кадра происходил уже ПОСЛЕ самой
+//  дорогой части.
+//
+//  Теперь сеть читается большими кусками (stream.read в массив, а не по
+//  байту), кадры ищутся в уже накопленном буфере по тем же маркерам
+//  SOI/EOI (см. FrameBuffer ниже), а если сеть успела
+//  прислать больше одного целого кадра за раз — разобраны будут все, но до
+//  разжатия дойдёт только самый свежий. Устаревший кадр в этой схеме не
+//  стоит почти ничего: несколько сравнений байт в уже лежащем в памяти
+//  массиве, а не поток системных вызовов.
 // ---------------------------------------------------------------------------
 
 class MjpegView @JvmOverloads constructor(
@@ -108,10 +124,20 @@ class MjpegView @JvmOverloads constructor(
 
         try {
             val stream = BufferedInputStream(connection.inputStream, 64 * 1024)
+            val buffer = FrameBuffer()
+            val chunk = ByteArray(32 * 1024)
             var lastShown = 0L
 
             while (isActive) {
-                val frame = readJpeg(stream) ?: throw IllegalStateException("поток кончился")
+                val read = stream.read(chunk)
+                if (read < 0) throw IllegalStateException("поток кончился")
+                buffer.append(chunk, read)
+
+                // Разбирает всё, что накопилось, и возвращает только самый
+                // свежий целый кадр — устаревшие уходят из буфера, так и не
+                // будучи разжатыми. Пустой результат — ни одного целого кадра
+                // ещё нет, читаем дальше.
+                val frame = buffer.extractLatest() ?: continue
 
                 val now = System.currentTimeMillis()
                 if (now - lastShown < MIN_FRAME_GAP_MS) continue
@@ -173,39 +199,81 @@ class MjpegView @JvmOverloads constructor(
         return BitmapFactory.decodeByteArray(frame, 0, frame.size, options)
     }
 
-    /// Вытащить из потока один кадр JPEG.
-    private fun readJpeg(stream: InputStream): ByteArray? {
-        val buffer = ByteArrayOutputStream(64 * 1024)
-
-        // Ищем начало кадра: FF D8.
-        var previous = -1
-        while (true) {
-            val byte = stream.read()
-            if (byte < 0) return null
-            if (previous == 0xFF && byte == 0xD8) {
-                buffer.write(0xFF)
-                buffer.write(0xD8)
-                break
-            }
-            previous = byte
-        }
-
-        // Читаем до конца кадра: FF D9.
-        previous = -1
-        while (true) {
-            val byte = stream.read()
-            if (byte < 0) return null
-            buffer.write(byte)
-            if (previous == 0xFF && byte == 0xD9) break
-            previous = byte
-        }
-
-        return buffer.toByteArray()
-    }
-
     override fun onDetachedFromWindow() {
         stop()
         scope.cancel()
         super.onDetachedFromWindow()
+    }
+}
+
+/// Растущий буфер сырых байт потока с разбором по маркерам JPEG.
+///
+/// АНАЛОГ core::MjpegWorker::extractLatestFrame НА СТОРОНЕ ПК, тем же
+/// приёмом: копится байтами, разбирается сразу ВСЁ, что успело накопиться,
+/// а возвращается только самый свежий целиком собранный кадр — предыдущие
+/// уходят из буфера, так и не будучи разжатыми. Именно так лишний кадр
+/// перестаёт стоить почти ничего: до JPEG-декодера, самой дорогой части,
+/// он просто не доходит.
+///
+/// Разбор — только по маркерам SOI (FF D8) и EOI (FF D9), без опоры на
+/// заголовки multipart: у смартфона в роли камеры и у самодельных камер
+/// разметка между кадрами отличается, а сам JPEG — нет.
+private class FrameBuffer {
+
+    companion object {
+        /// Не копим байты бесконечно, если поток окажется не тем, что мы
+        /// ждём, — тот же предел, что и на стороне ПК.
+        private const val MAX_BYTES = 32 * 1024 * 1024
+
+        private val SOI = byteArrayOf(0xFF.toByte(), 0xD8.toByte())
+        private val EOI = byteArrayOf(0xFF.toByte(), 0xD9.toByte())
+    }
+
+    private var data = ByteArray(0)
+
+    fun append(chunk: ByteArray, length: Int) {
+        val merged = ByteArray(data.size + length)
+        System.arraycopy(data, 0, merged, 0, data.size)
+        System.arraycopy(chunk, 0, merged, data.size, length)
+        data = merged
+
+        if (data.size > MAX_BYTES) {
+            // Похоже, это не MJPEG вовсе — маркеры никогда не находятся, и
+            // буфер растёт без конца. Начинаем заново, а не копим мегабайты
+            // впустую.
+            data = ByteArray(0)
+        }
+    }
+
+    fun extractLatest(): ByteArray? {
+        var last: ByteArray? = null
+        var consumedUpTo = 0
+
+        while (true) {
+            val soi = indexOf(data, SOI, consumedUpTo)
+            if (soi < 0) break
+            val eoi = indexOf(data, EOI, soi + SOI.size)
+            if (eoi < 0) break   // кадр начался, но не закончился — ждём остаток
+
+            val frameEnd = eoi + EOI.size
+            last = data.copyOfRange(soi, frameEnd)
+            consumedUpTo = frameEnd
+        }
+
+        if (consumedUpTo > 0)
+            data = data.copyOfRange(consumedUpTo, data.size)
+
+        return last
+    }
+
+    private fun indexOf(haystack: ByteArray, needle: ByteArray, from: Int): Int {
+        val limit = haystack.size - needle.size
+        var i = from
+        while (i <= limit) {
+            if (haystack[i] == needle[0] && haystack[i + 1] == needle[1])
+                return i
+            ++i
+        }
+        return -1
     }
 }

@@ -20,9 +20,16 @@ import ru.poolsafety.watch.net.WatchEvent
 //
 //  ТРИ КАНАЛА, А НЕ ОДИН. Android даёт настраивать важность отдельно для
 //  каждого канала, и это ровно то разделение, на котором стоит вся система:
-//  присутствие человека — спокойное сообщение, тревога — то, что обязано
-//  разбудить. Свалив их в один канал, мы отдали бы это решение случаю: убавив
+//  у присутствия и тревоги разная громкость, разный звук, разное поведение на
+//  экране. Свалив их в один канал, мы отдали бы это решение случаю: убавив
 //  громкость надоевшему присутствию, оператор убавил бы её и тревоге.
+//
+//  ПРИСУТСТВИЕ ТОЖЕ ВСПЛЫВАЕТ БАННЕРОМ, А НЕ ЖДЁТ, ПОКА ШТОРКУ ОПУСТЯТ.
+//  Раньше канал стоял на IMPORTANCE_LOW — Android показывает баннер поверх
+//  экрана (heads-up) только начиная с IMPORTANCE_HIGH, а на LOW и DEFAULT
+//  сообщение молча ложится в шторку. Спасателю, не глядящему в телефон
+//  специально, человек в зоне бассейна должен быть виден сразу, а не после
+//  того, как он догадается развернуть уведомления.
 //
 //  ЗВУКИ БЕРЁМ СИСТЕМНЫЕ — так просил заказчик. Своих файлов нет: системный
 //  звук оператор узнаёт, он одинаково слышен на любом телефоне и не пропадёт
@@ -44,7 +51,13 @@ object Notifications {
     /// сирене, канал понадобилось завести заново, под новым именем.
     const val CHANNEL_ALARM = "alarm_v2"
     const val CHANNEL_ATTENTION = "attention"
-    const val CHANNEL_PRESENCE = "presence"
+
+    /// ТОЖЕ С ДВОЙКОЙ, ПО ТОЙ ЖЕ ПРИЧИНЕ, ЧТО И alarm_v2. Прежний канал
+    /// "presence" уже создан на телефонах с прежней версией приложения с
+    /// важностью IMPORTANCE_LOW, и поднять её кодом нельзя — старый канал так
+    /// и останется тихим у тех, кто уже поставил приложение. Новое имя
+    /// заводит канал заново, сразу с нужной важностью.
+    const val CHANNEL_PRESENCE = "presence_v2"
     const val CHANNEL_SERVICE = "service"
 
     /// Постоянное уведомление службы. Номер занят навсегда — его нельзя
@@ -93,9 +106,9 @@ object Notifications {
         val presence = NotificationChannel(
             CHANNEL_PRESENCE,
             "Появление человека",
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "В зоне наблюдения появились люди."
+            description = "В зоне наблюдения появились люди. Показывается баннером поверх экрана."
             enableVibration(false)
             setSound(noticeSound, null)
         }
@@ -206,9 +219,16 @@ object Notifications {
                 )
             }
         } else {
+            // Присутствие — тоже баннером поверх экрана (см. канал выше), а не
+            // молча в шторку. HIGH здесь работает и как запасной путь для
+            // Android до восьмой версии, где каналов ещё нет и всплытие решает
+            // именно приоритет уведомления, а не канал.
             builder.setPriority(
-                if (event.kind == EventKind.Attention) NotificationCompat.PRIORITY_DEFAULT
-                else NotificationCompat.PRIORITY_LOW
+                when (event.kind) {
+                    EventKind.Attention -> NotificationCompat.PRIORITY_DEFAULT
+                    EventKind.Presence, EventKind.Clear -> NotificationCompat.PRIORITY_HIGH
+                    else -> NotificationCompat.PRIORITY_LOW
+                }
             )
         }
 
